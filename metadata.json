@@ -1,0 +1,7 @@
+{
+  "name": "FluentFlow AI",
+  "description": "An adaptive English learning platform powered by Gemini. Features include AI-driven placement tests, pronunciation shadowing with speech analysis, interactive vocabulary drills, and progress gamification.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
