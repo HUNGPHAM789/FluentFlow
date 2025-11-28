@@ -25,6 +25,18 @@ export enum EnglishLevel {
   UNKNOWN = 'UNKNOWN'
 }
 
+// Extended level type for Prompt Generation
+export type AppLevel = EnglishLevel | 'IELTS' | 'TOEIC' | 'CITIZENSHIP' | 'MIXED' | 'DEFAULT';
+
+export type AppMode = 'EXPLAIN' | 'EXERCISE' | 'SPEAKING' | 'EXAM' | 'FEEDBACK';
+
+export interface AppSettings {
+  level: AppLevel;
+  mode: AppMode;
+  topic: string; 
+  context?: string;
+}
+
 // Centralized constants for the app
 export const LEARNING_TOPICS = [
   "Daily Life", 

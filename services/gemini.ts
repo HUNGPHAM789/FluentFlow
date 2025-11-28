@@ -1,14 +1,60 @@
 // --- services/gemini.ts ---
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { EnglishLevel, PlacementQuestion, SpeakingFeedback, VocabDrillContent, NewVocabCard, GrammarQuestion, AppLanguage } from "../types";
+import { EnglishLevel, PlacementQuestion, SpeakingFeedback, VocabDrillContent, NewVocabCard, GrammarQuestion, AppLanguage, AppSettings, AppMode, AppLevel } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+// --- Centralized Prompt Builder ---
+
+export const buildGeminiPrompt = (settings: AppSettings, userInput: string): string => {
+  const { level, mode, context } = settings;
+  
+  // 1. Start with the structured metadata tags
+  let prompt = `mode=${mode}, level=${level}.`;
+
+  // 2. Add optional context if available
+  if (context) {
+    prompt += ` Context: ${context}.`;
+  }
+
+  // 3. Append the user's request based on mode
+  switch (mode) {
+    case 'EXPLAIN':
+      prompt += ` Task: Explain, define, or analyze the term/concept "${userInput}".`;
+      break;
+      
+    case 'EXERCISE':
+      prompt += ` Task: Create a practice exercise for: "${userInput}".`;
+      break;
+      
+    case 'SPEAKING':
+      prompt += ` Task: Create a natural speaking scenario or sentence for topic: "${userInput}".`;
+      break;
+      
+    case 'EXAM':
+      prompt += ` Task: Generate specific exam content for: "${userInput}".`;
+      break;
+
+    case 'FEEDBACK':
+      prompt += ` Task: Analyze and provide feedback on the following input: "${userInput}".`;
+      break;
+      
+    default:
+      prompt += ` ${userInput}`;
+      break;
+  }
+  
+  return prompt.trim();
+};
 
 // --- Placement Test ---
 
 export const generatePlacementTest = async (): Promise<PlacementQuestion[]> => {
   const model = "gemini-2.5-flash";
+  
+  // Using generic construction for this specific complex request
   const prompt = `
+    mode=EXAM, level=MIXED.
     Generate an English placement test with exactly 7 questions (1 for each category).
     Categories: Academy, Work, IELTS, TOEIC, Daily Life, Speaking, Slang.
     Difficulty: Mixed A2 to C1.
@@ -71,15 +117,29 @@ export const determineLevel = async (score: number, total: number): Promise<Engl
 
 export const generateSpeakingSentence = async (topic: string, level: string, lang: AppLanguage = 'en'): Promise<string> => {
   const model = "gemini-2.5-flash";
-  // Add randomness
   const seed = Date.now();
-  const prompt = `
-    Generate a single, natural, useful English sentence for speaking practice.
-    Topic: ${topic}
-    Level: ${level}
-    Constraint: Length should be 8-15 words. Random seed: ${seed}.
-    Return JSON with property 'sentence'.
-  `;
+  
+  // Determine mode and level mapping
+  let mode: AppMode = 'SPEAKING';
+  let appLevel: AppLevel = level as AppLevel;
+
+  if (topic.toUpperCase().includes('IELTS')) {
+    mode = 'EXAM';
+    appLevel = 'IELTS';
+  } else if (topic.toUpperCase().includes('CITIZENSHIP')) {
+    mode = 'EXAM';
+    appLevel = 'CITIZENSHIP';
+  }
+
+  const settings: AppSettings = {
+    mode,
+    level: appLevel,
+    topic,
+    context: `Generate a single natural sentence (8-15 words). Random seed: ${seed}.`
+  };
+
+  let prompt = buildGeminiPrompt(settings, topic);
+  prompt += " Return JSON with property 'sentence'.";
 
   const schema: Schema = {
     type: Type.OBJECT,
@@ -110,13 +170,19 @@ export const evaluateSpeaking = async (
   const model = "gemini-2.5-flash";
   const languageName = lang === 'vi' ? 'Vietnamese' : 'English';
   
-  const prompt = `
-    Analyze the user's spoken audio against the target sentence: "${targetSentence}".
-    1. Transcribe the audio.
-    2. STRICTLY determine if the pronunciation and accuracy are acceptable.
-    3. Identify specific mispronounced words.
-    4. Provide phonetic guidance (IPA) for mispronounced words.
-    5. Provide feedback in ${languageName}.
+  const settings: AppSettings = {
+    mode: 'FEEDBACK',
+    level: 'DEFAULT', // Level isn't critical for phonetic analysis but required by type
+    topic: 'Pronunciation',
+    context: `Target sentence: "${targetSentence}". Provide feedback in ${languageName}.`
+  };
+
+  let prompt = buildGeminiPrompt(settings, "Audio Analysis");
+  prompt += `
+    1. Transcribe audio.
+    2. Determine correctness.
+    3. Identify mispronounced words.
+    4. Provide phonetic guidance (IPA).
     Return JSON.
   `;
 
@@ -198,14 +264,18 @@ export const evaluateSpeaking = async (
 
 // --- Vocabulary & Explanations ---
 
-export const getExplanation = async (term: string, context: string, lang: AppLanguage = 'en') => {
+export const getExplanation = async (term: string, context: string, level: string = "B1", lang: AppLanguage = 'en') => {
   const model = "gemini-2.5-flash";
   const languageName = lang === 'vi' ? 'Vietnamese' : 'English';
-  const prompt = `
-    Explain the English concept or word "${term}" in the context of: "${context}".
-    Provide the explanation in ${languageName}.
-    Keep it concise (under 40 words) and helpful for a learner.
-  `;
+  
+  const settings: AppSettings = {
+    mode: 'EXPLAIN',
+    level: level as AppLevel,
+    topic: term,
+    context: `Context: "${context}". Language: ${languageName}. Keep it concise.`
+  };
+
+  const prompt = buildGeminiPrompt(settings, term);
   const response = await ai.models.generateContent({ model, contents: prompt });
   return response.text || "Explanation unavailable.";
 };
@@ -214,16 +284,16 @@ export const generateVocabDrill = async (word: string, lang: AppLanguage = 'en')
   const model = "gemini-2.5-flash";
   const languageName = lang === 'vi' ? 'Vietnamese' : 'English';
 
-  const prompt = `
-    Create a detailed learning drill for the word "${word}" for a user who speaks ${languageName}.
-    1. 3 distinct usage situations in English, and provide a translation for each in ${languageName}.
-    2. A Multiple Choice Question (MCQ) asking for the meaning of "${word}". The options should be in ${languageName}.
-    3. A "Translation Challenge": Create a simple sentence in ${languageName} that translates to a sentence using "${word}" in English. Provide the Native Sentence, the Correct English Sentence, and a scrambled array of the English words.
-    4. A "Scramble Challenge": Another English sentence using "${word}". Provide the scrambled parts, the correct string, and the ${languageName} translation.
-    5. Common word forms.
-    Return JSON.
-  `;
-  
+  const settings: AppSettings = {
+    mode: 'EXERCISE',
+    level: EnglishLevel.B1, // Defaulting to B1 for drills if not specified, could be passed in
+    topic: word,
+    context: `Target Language: ${languageName}. Create situations, quizzes, and translation challenges.`
+  };
+
+  let prompt = buildGeminiPrompt(settings, word);
+  prompt += " Return detailed JSON.";
+
   const schema: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -286,7 +356,6 @@ export const generateVocabDrill = async (word: string, lang: AppLanguage = 'en')
     return JSON.parse(response.text!) as VocabDrillContent;
   } catch (e) {
     console.error(e);
-    // Fallback data
     return {
       word: word,
       situations: [{ english: "Example 1", translation: "Ví dụ 1" }],
@@ -304,13 +373,15 @@ export const generateNewVocab = async (topic: string, level: string = "B1", lang
   const model = "gemini-2.5-flash";
   const languageName = lang === 'vi' ? 'Vietnamese' : 'English';
   
-  const prompt = `
-    Generate a SINGLE "necessary" English vocabulary word that is strictly level ${level} related to the topic: "${topic}".
-    Ensure the word is commonly used in ${level} contexts.
-    Include definition in ${languageName}.
-    Include example sentence in English and its translation in ${languageName}.
-    Return JSON.
-  `;
+  const settings: AppSettings = {
+    mode: 'EXPLAIN', // Using EXPLAIN to get definitions
+    level: level as AppLevel,
+    topic: topic,
+    context: `Generate ONE necessary vocabulary word. Definitions/translations in ${languageName}.`
+  };
+
+  let prompt = buildGeminiPrompt(settings, "Vocabulary Word");
+  prompt += " Return JSON.";
 
   const schema: Schema = {
     type: Type.OBJECT,
@@ -350,16 +421,17 @@ export const generateNewVocab = async (topic: string, level: string = "B1", lang
 export const generateGrammarExercise = async (topic: string, lang: AppLanguage = 'en'): Promise<GrammarQuestion> => {
   const model = "gemini-2.5-flash";
   const languageName = lang === 'vi' ? 'Vietnamese' : 'English';
-  const randomSeed = Date.now();
+  const seed = Date.now();
 
-  const prompt = `
-    Generate a CREATIVE and UNIQUE English grammar multiple-choice question related to: "${topic}".
-    If topic is "Random", choose any common grammar pitfall (tenses, prepositions, etc.).
-    Include the question, 3 options, the correct index.
-    Provide the explanation in ${languageName}.
-    Ensure it is different from typical generic examples. Random Seed: ${randomSeed}
-    Return JSON.
-  `;
+  const settings: AppSettings = {
+    mode: 'EXERCISE',
+    level: EnglishLevel.B1, // Could be dynamic
+    topic: topic,
+    context: `Create a unique multiple choice grammar question. Explanation in ${languageName}. Random Seed: ${seed}.`
+  };
+
+  let prompt = buildGeminiPrompt(settings, topic);
+  prompt += " Return JSON.";
 
   const schema: Schema = {
     type: Type.OBJECT,
@@ -398,11 +470,15 @@ export const generateGrammarRecallQuestions = async (topic: string, rule: string
   const model = "gemini-2.5-flash";
   const languageName = lang === 'vi' ? 'Vietnamese' : 'English';
   
-  const prompt = `
-    Generate 3 distinct English grammar multiple-choice questions to test the specific rule: "${rule}" (Topic: ${topic}).
-    Language for explanations: ${languageName}.
-    Return a JSON array of 3 questions.
-  `;
+  const settings: AppSettings = {
+    mode: 'EXERCISE',
+    level: EnglishLevel.B1,
+    topic: topic,
+    context: `Rule: "${rule}". Generate 3 questions testing this rule. Explanations in ${languageName}.`
+  };
+
+  let prompt = buildGeminiPrompt(settings, topic);
+  prompt += " Return JSON array.";
 
   const schema: Schema = {
     type: Type.ARRAY,
@@ -428,7 +504,25 @@ export const generateGrammarRecallQuestions = async (topic: string, rule: string
     });
     return JSON.parse(response.text!) as GrammarQuestion[];
   } catch (e) {
-    console.error("Recall Error", e);
     return [];
   }
+};
+
+// --- Writing/Feedback Assistant ---
+
+export const checkUserText = async (text: string, level: string, lang: AppLanguage = 'en'): Promise<string> => {
+  const model = "gemini-2.5-flash";
+  const languageName = lang === 'vi' ? 'Vietnamese' : 'English';
+  
+  const settings: AppSettings = {
+    mode: 'FEEDBACK',
+    level: level as AppLevel,
+    topic: 'Writing Correction',
+    context: `Provide constructive feedback and corrections. Explain in ${languageName}.`
+  };
+
+  const prompt = buildGeminiPrompt(settings, text);
+  
+  const response = await ai.models.generateContent({ model, contents: prompt });
+  return response.text || "Feedback unavailable.";
 };

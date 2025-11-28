@@ -1,6 +1,6 @@
 // --- App.tsx ---
 import React, { useState, useEffect, useRef } from 'react';
-import { AppView, UserProfile, EnglishLevel, VocabWord, PlacementQuestion, VocabDrillContent, SpeakingFeedback, NewVocabCard, GrammarQuestion, AppLanguage, GrammarPoint, LEARNING_TOPICS, CEFR_LEVELS } from './types';
+import { AppView, UserProfile, EnglishLevel, VocabWord, PlacementQuestion, VocabDrillContent, SpeakingFeedback, NewVocabCard, GrammarQuestion, AppLanguage, GrammarPoint, LEARNING_TOPICS, CEFR_LEVELS, AppLevel } from './types';
 import { generatePlacementTest, determineLevel, evaluateSpeaking, generateVocabDrill, getExplanation, generateNewVocab, generateGrammarExercise, generateGrammarRecallQuestions, generateSpeakingSentence } from './services/gemini';
 import Button from './components/Button';
 import BadgeDisplay from './components/BadgeDisplay';
@@ -14,26 +14,26 @@ import { translations } from './utils/translations';
 const WelcomeView: React.FC<{ onStart: () => void }> = ({ onStart }) => {
   const t = translations.en; // Default for welcome
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-white to-slate-100 p-6 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-white p-6 relative overflow-hidden">
       {/* Background Decor */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-200/30 rounded-full blur-3xl animate-pulse"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-pink-200/30 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-200/40 rounded-full blur-3xl animate-pulse"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-200/40 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
 
       <div className="z-10 text-center space-y-10 max-w-lg fade-in">
         
         {/* Animated Logo */}
         <div className="flex justify-center">
           <div className="relative w-32 h-32 float">
-            <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-[2rem] shadow-2xl rotate-3 flex items-center justify-center">
+            <div className="absolute inset-0 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-[2rem] shadow-2xl rotate-3 flex items-center justify-center">
                <span className="text-6xl">🌊</span>
             </div>
-            <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-[2rem] shadow-2xl -rotate-6 opacity-30 blur-sm -z-10"></div>
+            <div className="absolute inset-0 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-[2rem] shadow-2xl -rotate-6 opacity-30 blur-sm -z-10"></div>
           </div>
         </div>
 
         <div className="space-y-4">
           <h1 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tight">
-            FluentFlow <span className="text-indigo-600">AI</span>
+            FluentFlow <span className="text-blue-600">AI</span>
           </h1>
           <p className="text-lg text-slate-600 font-medium leading-relaxed">
             {t.welcomeScreenSubtitle}
@@ -47,7 +47,7 @@ const WelcomeView: React.FC<{ onStart: () => void }> = ({ onStart }) => {
           <span className="relative z-10 flex items-center gap-2">
             {t.getStarted} &rarr;
           </span>
-          <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 to-purple-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
         </button>
       </div>
 
@@ -80,7 +80,7 @@ const LoginView: React.FC<{
   const filteredLangs = languages.filter(l => l.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-600 to-indigo-800 p-6 relative overflow-hidden">
       <div className="absolute inset-0 z-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
       
       {/* Language Selector */}
@@ -88,14 +88,14 @@ const LoginView: React.FC<{
         <div className="relative">
           <button 
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-200 hover:bg-slate-50 transition-all text-sm font-medium text-slate-700"
+            className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl shadow-sm border border-white/20 hover:bg-white/20 transition-all text-sm font-medium text-white"
           >
             <span>🌐 {languages.find(l => l.code === lang)?.name}</span>
             <span>▼</span>
           </button>
           
           {dropdownOpen && (
-            <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-100 p-2 fade-in">
+            <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-100 p-2 fade-in text-slate-800">
               <input 
                 type="text" 
                 placeholder={t.searchLanguage} 
@@ -122,9 +122,9 @@ const LoginView: React.FC<{
         </div>
       </div>
 
-      <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md z-10 fade-in text-center space-y-8">
+      <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md z-10 fade-in text-center space-y-8">
         <div className="space-y-2">
-          <div className="h-16 w-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl mx-auto flex items-center justify-center text-3xl mb-4 shadow-lg shadow-indigo-200">
+          <div className="h-16 w-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-3xl mb-4 shadow-lg shadow-blue-200">
             🌊
           </div>
           <h1 className="text-3xl font-bold text-slate-800">FluentFlow AI</h1>
@@ -134,18 +134,20 @@ const LoginView: React.FC<{
         <div className="space-y-4">
           <button 
             onClick={() => onLogin('google', lang)}
-            className="w-full flex items-center justify-center gap-3 p-4 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all font-medium text-slate-700 bg-white"
+            className="w-full flex items-center justify-center gap-3 p-3.5 bg-white text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 shadow-sm hover:shadow-md transition-all font-medium group"
           >
-            <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5" alt="Google" />
-            {t.continueGoogle}
+            <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="Google" />
+            <span>{t.continueGoogle}</span>
           </button>
           
           <button 
             onClick={() => onLogin('apple', lang)}
-            className="w-full flex items-center justify-center gap-3 p-4 bg-black text-white rounded-xl hover:opacity-90 transition-all font-medium"
+            className="w-full flex items-center justify-center gap-3 p-3.5 bg-black text-white rounded-xl hover:bg-slate-800 shadow-lg hover:shadow-xl transition-all duration-200 font-bold group"
           >
-            <img src="https://www.svgrepo.com/show/445205/apple.svg" className="w-5 h-5 invert" alt="Apple" />
-            {t.continueApple}
+            <svg className="w-6 h-6 fill-current text-white group-hover:scale-110 transition-transform" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M17.05 20.28c-.98.95-2.05 2.3-3.71 2.3-1.6 0-2.12-.95-3.95-.95-1.8 0-2.35.95-3.92.95-1.55 0-2.82-1.42-3.87-2.9-2.15-3.08-2.15-6.02-2.15-8.5 0-4.15 2.72-6.22 5.3-6.22 1.6 0 3.05 1.05 4.05 1.05.95 0 2.6-1.05 4.38-1.05 1.5.02 2.65.62 3.4 1.08-.85.52-1.4 1.55-1.4 2.8 0 2.22 1.95 3.32 2 3.35-.02.05-3.05 10.58-4.13 12.09zM12.03 7.25c-.15-2.22 1.8-4.25 3.9-4.25.18 2.58-2.6 4.38-3.9 4.25z" />
+            </svg>
+            <span>{t.continueApple}</span>
           </button>
         </div>
 
@@ -172,7 +174,7 @@ const LandingView: React.FC<{
   onStart: () => void;
   onSkip: () => void; 
 }> = ({ onStart, onSkip }) => (
-  <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-900 via-indigo-800 to-slate-900 text-white p-6 relative overflow-hidden">
+  <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-900 via-indigo-900 to-slate-900 text-white p-6 relative overflow-hidden">
     <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
     <div className="z-10 text-center max-w-lg space-y-8 fade-in">
       <div className="space-y-2">
@@ -253,7 +255,7 @@ const PlacementTestView: React.FC<{ onComplete: (level: EnglishLevel) => void }>
 
   if (loading && questions.length === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50">
         <div className="text-center space-y-4">
           <div className="animate-spin text-4xl">🔮</div>
           <p className="text-slate-600 font-medium">Analyzing your English profile...</p>
@@ -266,7 +268,7 @@ const PlacementTestView: React.FC<{ onComplete: (level: EnglishLevel) => void }>
   if (!q) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 flex flex-col items-center justify-center p-6">
       <div className="max-w-xl w-full bg-white rounded-3xl shadow-xl p-8 space-y-8 fade-in">
         <div className="flex justify-between items-center border-b pb-4">
           <span className="text-xs font-bold uppercase tracking-wider text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full">
@@ -314,17 +316,20 @@ const TopicSelectionModal: React.FC<{
   
   if (!isOpen) return null;
 
+  // Extended levels for UI selection, including Exam types if needed, or keeping simple
+  const displayLevels = [...CEFR_LEVELS]; 
+
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
       <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative max-h-[90vh] overflow-y-auto">
-        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800">✕</button>
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
         <h3 className="text-xl font-bold text-slate-800 mb-2 text-center">{title}</h3>
         
         {/* Level Selector */}
         <div className="mb-6 bg-slate-50 p-3 rounded-xl">
            <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Target Level</label>
            <div className="flex justify-between gap-1 overflow-x-auto">
-             {CEFR_LEVELS.map(lvl => (
+             {displayLevels.map(lvl => (
                <button
                  key={lvl}
                  onClick={() => setSelectedLevel(lvl)}
@@ -398,7 +403,7 @@ const DashboardView: React.FC<{
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6 pb-24 relative">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 p-6 pb-24 relative">
       <TopicSelectionModal 
         isOpen={!!modalType} 
         onClose={() => setModalType(null)} 
@@ -446,7 +451,7 @@ const DashboardView: React.FC<{
               <span className="text-sm bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-md font-medium border border-yellow-200">
                 {user.titles[user.titles.length - 1] || 'Novice Learner'}
               </span>
-              <span className="text-sm bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-medium">
+              <span className="text-sm bg-white text-slate-600 px-2 py-0.5 rounded-md font-medium border border-slate-200">
                 Lvl: {user.level}
               </span>
             </div>
@@ -570,7 +575,7 @@ const ProgressView: React.FC<{ user: UserProfile, onBack: () => void }> = ({ use
   const t = translations[user.language || 'en'];
   
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 p-6">
       <div className="max-w-3xl mx-auto space-y-8 fade-in">
         <button onClick={onBack} className="text-slate-500 hover:text-slate-800 flex items-center gap-2">
           &larr; {t.back}
@@ -624,7 +629,7 @@ const GrammarReviewView: React.FC<{
   const t = translations[user.language || 'en'];
   
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 p-6">
       <div className="max-w-2xl mx-auto space-y-6 fade-in">
         <button onClick={onBack} className="text-slate-500 hover:text-slate-800 flex items-center gap-2">
           &larr; {t.back}
@@ -701,13 +706,13 @@ const GrammarRecallView: React.FC<{
   };
 
   if (loading) {
-     return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="animate-spin text-4xl text-orange-500">🧱</div></div>;
+     return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50"><div className="animate-spin text-4xl text-orange-500">🧱</div></div>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 flex flex-col items-center justify-center p-6">
       <div className="max-w-xl w-full bg-white rounded-3xl shadow-xl p-8 space-y-6 fade-in relative">
-        <button onClick={onBack} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800">✕</button>
+        <button onClick={onBack} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
 
         {step === 'intro' && (
           <div className="text-center space-y-6">
@@ -787,9 +792,9 @@ const NewVocabView: React.FC<{
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 flex flex-col items-center justify-center p-6">
       <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 space-y-6 fade-in relative">
-        <button onClick={onBack} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800">✕</button>
+        <button onClick={onBack} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
         <div className="flex items-center gap-2">
            <span className="text-xs font-bold uppercase tracking-wider text-pink-500 bg-pink-50 px-3 py-1 rounded-full">
             {topic}
@@ -873,9 +878,9 @@ const GrammarView: React.FC<{
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 flex flex-col items-center justify-center p-6">
       <div className="max-w-xl w-full bg-white rounded-3xl shadow-xl p-8 space-y-6 fade-in relative">
-        <button onClick={onBack} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800">✕</button>
+        <button onClick={onBack} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
         <span className="text-xs font-bold uppercase tracking-wider text-blue-500 bg-blue-50 px-3 py-1 rounded-full">
            Grammar: {topic}
         </span>
@@ -984,7 +989,8 @@ const VocabDrillView: React.FC<{
 
   const handleExplanationRequest = async (term: string) => {
     if (!drillContent) return;
-    const text = await getExplanation(term, `Drill for word: ${wordToPractice.word}`, lang);
+    // Updated to pass user.level
+    const text = await getExplanation(term, `Drill for word: ${wordToPractice.word}`, user.level, lang);
     setExplanation({ term, text });
   };
 
@@ -1042,7 +1048,7 @@ const VocabDrillView: React.FC<{
 
   if (user.vocabList.length === 0) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6 text-center">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 p-6 text-center">
         <h2 className="text-2xl font-bold text-slate-800">Your list is empty!</h2>
         <Button onClick={onBack} className="mt-4">{t.back}</Button>
       </div>
@@ -1051,16 +1057,16 @@ const VocabDrillView: React.FC<{
 
   if (loading || !drillContent) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50">
         <div className="animate-spin text-4xl text-emerald-500">🧠</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 pb-20 flex flex-col items-center justify-center">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 p-4 pb-20 flex flex-col items-center justify-center">
       <div className="w-full max-w-2xl bg-white rounded-3xl shadow-lg p-6 space-y-6 fade-in relative min-h-[500px] flex flex-col">
-        <button onClick={onBack} className="absolute top-6 right-6 text-slate-400 hover:text-slate-800">✕</button>
+        <button onClick={onBack} className="absolute top-6 right-6 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
         
         {/* Progress Bar */}
         <div className="w-full bg-slate-100 h-2 rounded-full mb-4">
@@ -1432,8 +1438,8 @@ const SpeakingView: React.FC<{
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <div className="p-4 border-b bg-white flex justify-between items-center z-10 relative">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 flex flex-col">
+      <div className="p-4 border-b bg-white flex justify-between items-center z-10 relative shadow-sm">
         <button onClick={onBack} className="text-slate-500 hover:text-slate-800 flex items-center gap-2">
           &larr; {t.quit}
         </button>
