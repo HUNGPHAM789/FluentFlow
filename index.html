@@ -51,6 +51,76 @@
         -ms-overflow-style: none;
         scrollbar-width: none;
       }
+
+      /* --- Markdown Renderer Styles --- */
+      .markdown-content {
+        font-family: 'Inter', system-ui, sans-serif;
+        line-height: 1.7;
+        color: #334155; /* Slate-700 */
+      }
+
+      /* Matches "## Explanation" */
+      .section-title {
+        color: #2563eb; /* Royal Blue */
+        font-size: 1.25rem;
+        font-weight: 700;
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+        border-bottom: 2px solid #e2e8f0;
+        padding-bottom: 0.25rem;
+      }
+
+      /* Matches "### Answer Key" */
+      .sub-section-title {
+        color: #475569; /* Slate-600 */
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-top: 1.25rem;
+        margin-bottom: 0.5rem;
+      }
+
+      /* Lists */
+      .markdown-content ul, .markdown-content ol {
+        padding-left: 1.5rem;
+        margin-bottom: 1rem;
+        list-style-type: disc;
+      }
+      .markdown-content ol {
+        list-style-type: decimal;
+      }
+
+      .list-item {
+        margin-bottom: 0.35rem;
+      }
+
+      /* Bold text for corrections */
+      .markdown-content strong {
+        color: #059669; /* Emerald-600 */
+        font-weight: 700;
+      }
+
+      /* Tables */
+      .markdown-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+        font-size: 0.95rem;
+      }
+
+      .markdown-content th, .markdown-content td {
+        border: 1px solid #cbd5e1;
+        padding: 0.75rem;
+        text-align: left;
+      }
+      
+      .markdown-content th {
+        background-color: #f1f5f9;
+        font-weight: 600;
+      }
+      
+      .markdown-content p {
+        margin-bottom: 1rem;
+      }
     </style>
   <script type="importmap">
 {
@@ -58,7 +128,9 @@
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "react-markdown": "https://aistudiocdn.com/react-markdown@^9.0.0",
+    "remark-gfm": "https://esm.sh/remark-gfm@4.0.0"
   }
 }
 </script>

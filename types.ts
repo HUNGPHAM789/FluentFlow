@@ -12,7 +12,8 @@ export enum AppView {
   GRAMMAR_PRACTICE = 'GRAMMAR_PRACTICE',
   GRAMMAR_REVIEW = 'GRAMMAR_REVIEW',
   GRAMMAR_RECALL = 'GRAMMAR_RECALL',
-  PROGRESS = 'PROGRESS'
+  PROGRESS = 'PROGRESS',
+  WRITING_ASSISTANT = 'WRITING_ASSISTANT'
 }
 
 export enum EnglishLevel {
@@ -49,6 +50,8 @@ export const LEARNING_TOPICS = [
   "Art & Culture", 
   "Slang", 
   "IELTS", 
+  "IELTS Speaking Part 2",
+  "Role Play",
   "Fun"
 ];
 
@@ -120,6 +123,7 @@ export interface SpeakingFeedback {
 
 export interface VocabDrillContent {
   word: string;
+  definition: string; // Native translation
   situations: { english: string; translation: string }[];
   meaningQuiz: {
     question: string;
@@ -162,3 +166,25 @@ export interface GrammarQuestion {
   correctIndex: number;
   explanation: string;
 }
+
+export interface DialogueLine {
+  speaker: string;
+  text: string;
+  translation?: string;
+}
+
+export interface ExamSpeakingContent {
+  type: 'EXAM';
+  cueCard: string;
+  sampleAnswer: string;
+  vocabulary: { word: string, definition: string }[];
+}
+
+export interface RolePlayScenario {
+  type: 'DIALOGUE';
+  dialogue: DialogueLine[];
+  usefulPhrases: { phrase: string; translation: string }[];
+  targetSentence: string; // The specific sentence to shadow
+}
+
+export type SpeakingScenario = string | RolePlayScenario | ExamSpeakingContent;

@@ -64,6 +64,7 @@ export const translations = {
     tryAgain: "Try Again",
     save: "Save to List",
     close: "Close",
+    skip: "Skip Step",
     
     // Vocab Drill
     drillIntro: "Study the word below",
@@ -157,6 +158,7 @@ export const translations = {
     tryAgain: "Thử lại",
     save: "Lưu từ",
     close: "Đóng",
+    skip: "Bỏ qua",
     
     // Vocab Drill
     drillIntro: "Học từ vựng dưới đây",

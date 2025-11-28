@@ -1,7 +1,9 @@
 // --- App.tsx ---
-import React, { useState, useEffect, useRef } from 'react';
-import { AppView, UserProfile, EnglishLevel, VocabWord, PlacementQuestion, VocabDrillContent, SpeakingFeedback, NewVocabCard, GrammarQuestion, AppLanguage, GrammarPoint, LEARNING_TOPICS, CEFR_LEVELS, AppLevel } from './types';
-import { generatePlacementTest, determineLevel, evaluateSpeaking, generateVocabDrill, getExplanation, generateNewVocab, generateGrammarExercise, generateGrammarRecallQuestions, generateSpeakingSentence } from './services/gemini';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
+import MarkdownRenderer from './components/MarkdownRenderer'; // Import the new renderer
+import { AppView, UserProfile, EnglishLevel, VocabWord, PlacementQuestion, VocabDrillContent, SpeakingFeedback, NewVocabCard, GrammarQuestion, AppLanguage, GrammarPoint, LEARNING_TOPICS, CEFR_LEVELS, AppLevel, SpeakingScenario, AppMode, AppSettings } from './types';
+import { generatePlacementTest, determineLevel, evaluateSpeaking, generateVocabDrill, getExplanation, generateNewVocab, generateGrammarExercise, generateGrammarRecallQuestions, generateSpeakingSentence, askGenericAI } from './services/gemini';
 import Button from './components/Button';
 import BadgeDisplay from './components/BadgeDisplay';
 import { blobToBase64 } from './utils/audioUtils';
@@ -286,7 +288,7 @@ const PlacementTestView: React.FC<{ onComplete: (level: EnglishLevel) => void }>
         </h2>
 
         <div className="space-y-3">
-          {q.options.map((opt, idx) => (
+          {q.options?.map((opt, idx) => (
             <button
               key={idx}
               onClick={() => handleAnswer(idx)}
@@ -521,6 +523,16 @@ const DashboardView: React.FC<{
               <p className="text-orange-100 text-sm mb-4">{t.grammarListDesc}</p>
               <span className="inline-block bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md">{t.review} &rarr;</span>
             </button>
+            
+            <button 
+              onClick={() => onNavigate(AppView.WRITING_ASSISTANT)}
+              className="group relative overflow-hidden bg-gradient-to-br from-purple-500 to-violet-600 rounded-3xl p-6 text-white text-left shadow-lg shadow-purple-200 transition-all hover:scale-[1.02] hover:shadow-purple-300 animate-[fadeIn_0.78s_ease-out_fill-mode-backwards]"
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-20 text-6xl rotate-12">✍️</div>
+              <h4 className="text-xl font-bold mb-2">AI Tutor & Writing</h4>
+              <p className="text-purple-100 text-sm mb-4">Feedback, writing, & custom Q&A.</p>
+              <span className="inline-block bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md">Start &rarr;</span>
+            </button>
 
              <button 
               onClick={() => onNavigate(AppView.PROGRESS)}
@@ -562,6 +574,127 @@ const DashboardView: React.FC<{
         <footer className="text-center text-slate-400 text-xs py-8">
            FluentFlow AI v1.0 • Built with Gemini
         </footer>
+      </div>
+    </div>
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/*                          WRITING ASSISTANT VIEW                            */
+/* -------------------------------------------------------------------------- */
+
+const WritingAssistantView: React.FC<{ 
+  user: UserProfile; 
+  onBack: () => void; 
+}> = ({ user, onBack }) => {
+  const [inputText, setInputText] = useState('');
+  const [response, setResponse] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  
+  // Controls
+  const [mode, setMode] = useState<AppMode>('FEEDBACK');
+  const [level, setLevel] = useState<AppLevel>(user.level || EnglishLevel.B1);
+
+  const handleCheck = async () => {
+    if (!inputText.trim()) return;
+    setLoading(true);
+    setResponse(null);
+    
+    // Use the generic askAI which leverages the promptBuilder
+    const result = await askGenericAI({
+      mode: mode,
+      level: level,
+      topic: 'Custom Request', // Topic is less relevant here as input drives it
+      context: `User Language: ${user.language || 'en'}`
+    }, inputText);
+    
+    setResponse(result);
+    setLoading(false);
+  };
+
+  const displayLevels: AppLevel[] = [...CEFR_LEVELS, 'IELTS', 'TOEIC', 'CITIZENSHIP'] as AppLevel[];
+  const displayModes: AppMode[] = ['EXPLAIN', 'FEEDBACK', 'EXERCISE', 'SPEAKING', 'EXAM'];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 flex flex-col items-center justify-center p-6">
+      <div className="max-w-3xl w-full bg-white rounded-3xl shadow-xl p-8 space-y-6 fade-in relative flex flex-col min-h-[600px]">
+        <button onClick={onBack} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
+        
+        <div className="space-y-1">
+           <h2 className="text-2xl font-bold text-slate-800">AI Tutor & Writing Assistant</h2>
+           <p className="text-slate-500 text-sm">Ask questions, get feedback, or practice specific skills.</p>
+        </div>
+
+        {/* Controls Toolbar */}
+        <div className="flex flex-wrap gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+           <div className="flex-1 min-w-[140px]">
+             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mode</label>
+             <div className="relative">
+                <select 
+                  value={mode} 
+                  onChange={(e) => setMode(e.target.value as AppMode)}
+                  className="w-full appearance-none bg-white border border-slate-300 text-slate-700 py-2 px-3 pr-8 rounded-lg leading-tight focus:outline-none focus:bg-white focus:border-indigo-500 font-medium"
+                >
+                  {displayModes.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
+                  <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                </div>
+             </div>
+           </div>
+
+           <div className="flex-1 min-w-[140px]">
+             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Level</label>
+             <div className="relative">
+                <select 
+                  value={level} 
+                  onChange={(e) => setLevel(e.target.value as AppLevel)}
+                  className="w-full appearance-none bg-white border border-slate-300 text-slate-700 py-2 px-3 pr-8 rounded-lg leading-tight focus:outline-none focus:bg-white focus:border-indigo-500 font-medium"
+                >
+                  {displayLevels.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-700">
+                   <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                </div>
+             </div>
+           </div>
+        </div>
+
+        <div className="flex-1 flex flex-col gap-4">
+           {/* Response Area */}
+           <div className="flex-1 bg-slate-50 rounded-xl p-6 overflow-y-auto border border-slate-200 min-h-[300px]">
+             {loading ? (
+                <div className="flex items-center justify-center h-full text-slate-400 gap-2">
+                   <span className="animate-spin text-xl">✨</span> Thinking...
+                </div>
+             ) : response ? (
+                // Use the new Markdown Renderer here
+                <MarkdownRenderer content={response} />
+             ) : (
+                <div className="flex items-center justify-center h-full text-slate-400 text-sm italic">
+                   AI response will appear here...
+                </div>
+             )}
+           </div>
+
+           {/* Input Area */}
+           <div className="relative">
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder={mode === 'FEEDBACK' ? "Paste your text here to check..." : mode === 'EXPLAIN' ? "What do you want to understand?" : "Type your request..."}
+                className="w-full p-4 pr-12 rounded-xl border-2 border-slate-200 focus:border-indigo-500 focus:ring-0 resize-none h-32 transition-all shadow-sm focus:shadow-md"
+              />
+              <button 
+                onClick={handleCheck}
+                disabled={loading || !inputText.trim()}
+                className="absolute bottom-4 right-4 bg-indigo-600 text-white p-2.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-lg hover:shadow-indigo-300 hover:scale-105"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+              </button>
+           </div>
+        </div>
+
       </div>
     </div>
   );
@@ -731,14 +864,14 @@ const GrammarRecallView: React.FC<{
              <div className="flex justify-between items-center text-sm text-slate-400">
                <span>Question {currentIdx + 1}/{questions.length}</span>
                <div className="flex gap-1">
-                 {questions.map((_, i) => (
+                 {questions?.map((_, i) => (
                    <div key={i} className={`w-2 h-2 rounded-full ${i <= currentIdx ? 'bg-orange-500' : 'bg-slate-200'}`}></div>
                  ))}
                </div>
              </div>
              <h3 className="text-xl font-medium text-slate-800 text-center">{questions[currentIdx].question}</h3>
              <div className="space-y-3">
-               {questions[currentIdx].options.map((opt, i) => (
+               {questions[currentIdx].options?.map((opt, i) => (
                  <button key={i} onClick={() => handleAnswer(i)} className="w-full p-4 rounded-xl border-2 border-slate-100 hover:border-orange-500 hover:bg-orange-50 text-left transition-all">
                    {opt}
                  </button>
@@ -894,7 +1027,7 @@ const GrammarView: React.FC<{
             </h2>
 
             <div className="space-y-3">
-              {question.options.map((opt, idx) => {
+              {question.options?.map((opt, idx) => {
                 let statusClass = "border-slate-100 hover:border-blue-500 hover:bg-blue-50";
                 if (selectedIdx !== null) {
                   if (idx === question.correctIndex) statusClass = "border-green-500 bg-green-50 text-green-700 font-bold";
@@ -984,7 +1117,11 @@ const VocabDrillView: React.FC<{
   };
 
   const handleNextWord = () => {
-    setCurrentWordIndex(prev => (prev + 1) % user.vocabList.length);
+    if (currentWordIndex < user.vocabList.length - 1) {
+      setCurrentWordIndex(prev => prev + 1);
+    } else {
+      onBack();
+    }
   };
 
   const handleExplanationRequest = async (term: string) => {
@@ -998,7 +1135,7 @@ const VocabDrillView: React.FC<{
 
   // Step 1: Meaning Quiz
   const checkMeaningQuiz = (idx: number) => {
-    if (!drillContent) return;
+    if (!drillContent?.meaningQuiz) return;
     setQuizSelection(idx);
     if (idx === drillContent.meaningQuiz.correctIndex) {
       setQuizStatus('correct');
@@ -1079,23 +1216,33 @@ const VocabDrillView: React.FC<{
             <div className="text-center space-y-2">
               <span className="text-xs font-bold text-emerald-500 uppercase tracking-widest">{t.drillIntro}</span>
               <h2 className="text-5xl font-bold text-slate-800">{drillContent.word}</h2>
+              {/* Definition Display */}
+              {drillContent.definition && (
+                <div className="text-lg text-slate-500 font-medium italic">
+                  "{drillContent.definition}"
+                </div>
+              )}
               <div className="flex justify-center gap-2 mt-2">
-                 {Object.entries(drillContent.wordForms).map(([form, val], i) => val && (
-                   <span key={i} className="px-2 py-1 bg-slate-100 text-slate-500 rounded text-xs">{form}: {val}</span>
+                 {drillContent.wordForms && Object.entries(drillContent.wordForms).map(([form, val], i) => (val && val !== 'null') && (
+                   <span key={i} className="px-2 py-1 bg-slate-100 text-slate-500 rounded text-xs border border-slate-200">{form}: {val}</span>
                  ))}
               </div>
             </div>
 
             <div className="space-y-4">
               <h3 className="font-semibold text-slate-700">📚 {t.contextUsage}</h3>
-              <ul className="space-y-3">
-                {drillContent.situations.map((sit, i) => (
-                  <li key={i} className="p-3 bg-slate-50 rounded-lg text-slate-700 text-sm border-l-4 border-emerald-400">
-                    <p className="font-medium">{sit.english}</p>
-                    <p className="text-slate-500 text-xs mt-1">{sit.translation}</p>
-                  </li>
-                ))}
-              </ul>
+              {drillContent.situations && drillContent.situations.length > 0 ? (
+                <ul className="space-y-3">
+                  {drillContent.situations.map((sit, i) => (
+                    <li key={i} className="p-3 bg-slate-50 rounded-lg text-slate-700 text-sm border-l-4 border-emerald-400">
+                      <p className="font-medium">{sit.english}</p>
+                      <p className="text-slate-500 text-xs mt-1">{sit.translation}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-slate-400 text-sm text-center">Loading context examples...</p>
+              )}
             </div>
             <div className="mt-auto pt-4">
                <Button onClick={nextStep} className="w-full">{t.startDrill} &rarr;</Button>
@@ -1110,26 +1257,39 @@ const VocabDrillView: React.FC<{
             <div className="text-center text-4xl font-bold text-indigo-600 mb-4">{drillContent.word}</div>
             
             <div className="space-y-3 flex-1">
-              {drillContent.meaningQuiz.options.map((opt, idx) => {
-                let statusClass = "border-slate-200 hover:bg-slate-50";
-                if (quizSelection !== null) {
-                  if (idx === drillContent.meaningQuiz.correctIndex) statusClass = "bg-green-100 border-green-500 text-green-800";
-                  else if (idx === quizSelection) statusClass = "bg-red-100 border-red-500 text-red-800";
-                  else statusClass = "opacity-50";
-                }
-                return (
-                  <button 
-                    key={idx} 
-                    onClick={() => checkMeaningQuiz(idx)}
-                    disabled={quizSelection !== null}
-                    className={`w-full p-4 rounded-xl border-2 text-left font-medium transition-all ${statusClass}`}
-                  >
-                    {opt}
-                  </button>
-                );
-              })}
+              {drillContent.meaningQuiz?.options && drillContent.meaningQuiz.options.length > 0 ? (
+                drillContent.meaningQuiz.options.map((opt, idx) => {
+                  let statusClass = "border-slate-200 hover:bg-slate-50";
+                  if (quizSelection !== null) {
+                    if (idx === drillContent.meaningQuiz?.correctIndex) statusClass = "bg-green-100 border-green-500 text-green-800";
+                    else if (idx === quizSelection) statusClass = "bg-red-100 border-red-500 text-red-800";
+                    else statusClass = "opacity-50";
+                  }
+                  return (
+                    <button 
+                      key={idx} 
+                      onClick={() => checkMeaningQuiz(idx)}
+                      disabled={quizSelection !== null}
+                      className={`w-full p-4 rounded-xl border-2 text-left font-medium transition-all ${statusClass}`}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full space-y-4">
+                  <p className="text-slate-400">Quiz options unavailable for this word.</p>
+                  <Button onClick={nextStep} variant="secondary">{t.skip}</Button>
+                </div>
+              )}
             </div>
             
+            {quizStatus === 'idle' && (
+              <div className="mt-4 text-center">
+                 <button onClick={nextStep} className="text-slate-400 text-sm hover:text-slate-600 underline decoration-dotted">{t.skip || "Skip Step"}</button>
+              </div>
+            )}
+
             {quizStatus !== 'idle' && (
               <div className="mt-auto animate-[fadeIn_0.2s]">
                 {quizStatus === 'incorrect' ? (
@@ -1150,7 +1310,7 @@ const VocabDrillView: React.FC<{
           <div className="flex-1 flex flex-col space-y-6 animate-[fadeIn_0.3s]">
             <h3 className="text-xl font-bold text-center">{t.translationQuiz}</h3>
             <div className="p-4 bg-indigo-50 rounded-xl text-center text-lg font-medium text-indigo-900 border border-indigo-100">
-               "{drillContent.translationQuiz.nativeSentence}"
+               "{drillContent.translationQuiz?.nativeSentence}"
             </div>
 
             <div className="min-h-[60px] p-4 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex flex-wrap gap-2 items-center justify-center">
@@ -1162,23 +1322,33 @@ const VocabDrillView: React.FC<{
             </div>
 
             <div className="flex flex-wrap gap-2 justify-center">
-               {drillContent.translationQuiz.scrambledEnglish
-                 .filter(w => !userScramble.includes(w) || drillContent.translationQuiz.scrambledEnglish.filter(sw => sw === w).length > userScramble.filter(uw => uw === w).length)
+               {drillContent.translationQuiz?.scrambledEnglish && drillContent.translationQuiz.scrambledEnglish.length > 0 ? (
+                 drillContent.translationQuiz.scrambledEnglish
+                 .filter(w => !userScramble.includes(w) || (drillContent.translationQuiz?.scrambledEnglish?.filter(sw => sw === w).length ?? 0) > userScramble.filter(uw => uw === w).length)
                  .map((word, i) => (
                    <button key={i} onClick={() => handleWordClick(word)} className="px-3 py-2 bg-white text-indigo-600 rounded-lg border border-indigo-100 shadow-sm hover:shadow-md font-medium transition-all">
                      {word}
                    </button>
-                 ))}
+                 ))
+               ) : (
+                  <div className="w-full text-center py-4">
+                    <p className="text-slate-400 mb-2">Scramble options unavailable.</p>
+                    <Button onClick={nextStep} variant="secondary">{t.skip}</Button>
+                  </div>
+               )}
             </div>
 
-            <div className="mt-auto text-center">
-               {quizStatus === 'idle' && (
-                  <Button onClick={() => checkScramble(drillContent.translationQuiz.correctEnglish)} disabled={userScramble.length === 0} className="w-full">{t.check}</Button>
+            <div className="mt-auto text-center space-y-3">
+               {quizStatus === 'idle' && drillContent.translationQuiz?.scrambledEnglish && drillContent.translationQuiz.scrambledEnglish.length > 0 && (
+                  <>
+                    <Button onClick={() => checkScramble(drillContent.translationQuiz?.correctEnglish || "")} disabled={userScramble.length === 0} className="w-full">{t.check}</Button>
+                    <button onClick={nextStep} className="text-slate-400 text-sm hover:text-slate-600 underline decoration-dotted">{t.skip || "Skip Step"}</button>
+                  </>
                )}
                {quizStatus !== 'idle' && (
                   <div className="space-y-2 animate-[fadeIn_0.2s]">
                      {quizStatus === 'correct' ? <div className="text-green-600 font-bold">{t.correct}</div> : <div className="text-red-500 font-bold">{t.incorrect}</div>}
-                     {quizStatus === 'incorrect' && <div className="text-xs text-slate-400">Correct: {drillContent.translationQuiz.correctEnglish}</div>}
+                     {quizStatus === 'incorrect' && <div className="text-xs text-slate-400">Correct: {drillContent.translationQuiz?.correctEnglish}</div>}
                      <Button onClick={nextStep} className="w-full">{t.next}</Button>
                   </div>
                )}
@@ -1190,7 +1360,7 @@ const VocabDrillView: React.FC<{
         {step === 3 && (
            <div className="flex-1 flex flex-col space-y-6 animate-[fadeIn_0.3s]">
            <h3 className="text-xl font-bold text-center">{t.usageQuiz}</h3>
-           <div className="text-center text-slate-500 italic mb-2">"{drillContent.scrambleSentence.translation}"</div>
+           <div className="text-center text-slate-500 italic mb-2">"{drillContent.scrambleSentence?.translation}"</div>
 
            <div className="min-h-[60px] p-4 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex flex-wrap gap-2 items-center justify-center">
              {userScramble.map((word, i) => (
@@ -1201,23 +1371,33 @@ const VocabDrillView: React.FC<{
            </div>
 
            <div className="flex flex-wrap gap-2 justify-center">
-              {drillContent.scrambleSentence.scrambled
-                .filter(w => !userScramble.includes(w) || drillContent.scrambleSentence.scrambled.filter(sw => sw === w).length > userScramble.filter(uw => uw === w).length)
+              {drillContent.scrambleSentence?.scrambled && drillContent.scrambleSentence.scrambled.length > 0 ? (
+                drillContent.scrambleSentence.scrambled
+                .filter(w => !userScramble.includes(w) || (drillContent.scrambleSentence?.scrambled?.filter(sw => sw === w).length ?? 0) > userScramble.filter(uw => uw === w).length)
                 .map((word, i) => (
                   <button key={i} onClick={() => handleWordClick(word)} className="px-3 py-2 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100 hover:bg-emerald-100 font-medium transition-all">
                     {word}
                   </button>
-                ))}
+                ))
+              ) : (
+                  <div className="w-full text-center py-4">
+                    <p className="text-slate-400 mb-2">Sentence options unavailable.</p>
+                    <Button onClick={nextStep} variant="secondary">{t.skip}</Button>
+                  </div>
+              )}
            </div>
 
-           <div className="mt-auto text-center">
-              {quizStatus === 'idle' && (
-                 <Button onClick={() => checkScramble(drillContent.scrambleSentence.correct)} disabled={userScramble.length === 0} className="w-full">{t.check}</Button>
+           <div className="mt-auto text-center space-y-3">
+              {quizStatus === 'idle' && drillContent.scrambleSentence?.scrambled && drillContent.scrambleSentence.scrambled.length > 0 && (
+                 <>
+                   <Button onClick={() => checkScramble(drillContent.scrambleSentence?.correct || "")} disabled={userScramble.length === 0} className="w-full">{t.check}</Button>
+                   <button onClick={nextStep} className="text-slate-400 text-sm hover:text-slate-600 underline decoration-dotted">{t.skip || "Skip Step"}</button>
+                 </>
               )}
               {quizStatus !== 'idle' && (
                  <div className="space-y-2 animate-[fadeIn_0.2s]">
                     {quizStatus === 'correct' ? <div className="text-green-600 font-bold">{t.correct}</div> : <div className="text-red-500 font-bold">{t.incorrect}</div>}
-                    {quizStatus === 'incorrect' && <div className="text-xs text-slate-400">Correct: {drillContent.scrambleSentence.correct}</div>}
+                    {quizStatus === 'incorrect' && <div className="text-xs text-slate-400">Correct: {drillContent.scrambleSentence?.correct}</div>}
                     <Button onClick={nextStep} className="w-full">{t.next}</Button>
                  </div>
               )}
@@ -1233,7 +1413,9 @@ const VocabDrillView: React.FC<{
             <p className="text-lg text-slate-600 max-w-sm">
               {!mistakeMade ? t.drillSuccess : t.drillFail}
             </p>
-            <Button onClick={handleNextWord} className="w-full">{t.next} Word &rarr;</Button>
+            <Button onClick={handleNextWord} className="w-full">
+              {currentWordIndex < user.vocabList.length - 1 ? `${t.next} Word \u2192` : `${t.back} to Dashboard`}
+            </Button>
           </div>
         )}
 
@@ -1263,7 +1445,16 @@ const SpeakingView: React.FC<{
   onSaveWord: (word: string) => void;
   onSuccess: () => void;
 }> = ({ user, onBack, onSaveWord, onSuccess }) => {
-  const [targetSentence, setTargetSentence] = useState("");
+  // Fix: Use SpeakingScenario state type and derive target text string
+  const [speakingScenario, setSpeakingScenario] = useState<SpeakingScenario>("Loading...");
+  
+  const targetSentence = useMemo(() => {
+    if (typeof speakingScenario === 'string') return speakingScenario;
+    if (speakingScenario.type === 'DIALOGUE') return speakingScenario.targetSentence;
+    if (speakingScenario.type === 'EXAM') return speakingScenario.sampleAnswer;
+    return "";
+  }, [speakingScenario]);
+
   const [isRecording, setIsRecording] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [attempts, setAttempts] = useState(0);
@@ -1291,9 +1482,9 @@ const SpeakingView: React.FC<{
   }, [currentTopic]);
 
   const fetchNewSentence = async () => {
-    setTargetSentence("Loading...");
+    setSpeakingScenario("Loading..."); // Updated state setter
     const s = await generateSpeakingSentence(currentTopic, user.level, lang);
-    setTargetSentence(s);
+    setSpeakingScenario(s); // Updated state setter
     setAttempts(0);
     setFeedback(null);
   };
@@ -1492,6 +1683,24 @@ const SpeakingView: React.FC<{
             </div>
           ) : (
             <div className="fade-in flex flex-col items-center gap-4">
+               {/* Optional: Show Context for RolePlay/Exam */}
+              {typeof speakingScenario !== 'string' && (
+                 <div className="bg-indigo-50 p-3 rounded-lg text-sm text-indigo-800 mb-2 max-w-lg text-center">
+                    {speakingScenario.type === 'DIALOGUE' && (
+                       <div>
+                         <span className="font-bold">Role Play: </span>
+                         Shadow this line.
+                       </div>
+                    )}
+                    {speakingScenario.type === 'EXAM' && (
+                       <div>
+                         <span className="font-bold">Exam Task: </span>
+                         {speakingScenario.cueCard.substring(0, 50)}...
+                       </div>
+                    )}
+                 </div>
+              )}
+
               <h2 className={`text-3xl md:text-5xl font-bold text-slate-800 leading-tight transition-all ${targetSentence === "Loading..." ? 'opacity-50 blur-sm' : 'opacity-100'}`}>
                 "{targetSentence}"
               </h2>
@@ -1514,7 +1723,7 @@ const SpeakingView: React.FC<{
             </h3>
             <p className="text-slate-700 mb-2">{feedback.feedback}</p>
             
-            {!feedback.isCorrect && feedback.mispronouncedWords.length > 0 && (
+            {!feedback.isCorrect && feedback.mispronouncedWords && feedback.mispronouncedWords.length > 0 && (
                <div className="mt-3">
                  <p className="text-xs font-bold text-slate-500 uppercase mb-2">{t.trickyWords}</p>
                  <div className="flex flex-wrap gap-2">
@@ -1872,6 +2081,13 @@ const App: React.FC = () => {
           user={user} 
           onBack={() => setView(AppView.DASHBOARD)}
           onUpdateProgress={handleUpdateVocabMastery}
+        />
+      )}
+
+      {view === AppView.WRITING_ASSISTANT && (
+        <WritingAssistantView 
+          user={user}
+          onBack={() => setView(AppView.DASHBOARD)}
         />
       )}
     </div>

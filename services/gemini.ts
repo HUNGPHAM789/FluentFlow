@@ -1,58 +1,17 @@
 // --- services/gemini.ts ---
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { EnglishLevel, PlacementQuestion, SpeakingFeedback, VocabDrillContent, NewVocabCard, GrammarQuestion, AppLanguage, AppSettings, AppMode, AppLevel } from "../types";
+import { EnglishLevel, PlacementQuestion, SpeakingFeedback, VocabDrillContent, NewVocabCard, GrammarQuestion, AppLanguage, AppSettings, AppMode, AppLevel, SpeakingScenario, RolePlayScenario, ExamSpeakingContent } from "../types";
+import { buildGeminiPrompt } from "./promptBuilder";
+import { TOPIC_VOCAB_LISTS } from "../utils/vocabData";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-// --- Centralized Prompt Builder ---
-
-export const buildGeminiPrompt = (settings: AppSettings, userInput: string): string => {
-  const { level, mode, context } = settings;
-  
-  // 1. Start with the structured metadata tags
-  let prompt = `mode=${mode}, level=${level}.`;
-
-  // 2. Add optional context if available
-  if (context) {
-    prompt += ` Context: ${context}.`;
-  }
-
-  // 3. Append the user's request based on mode
-  switch (mode) {
-    case 'EXPLAIN':
-      prompt += ` Task: Explain, define, or analyze the term/concept "${userInput}".`;
-      break;
-      
-    case 'EXERCISE':
-      prompt += ` Task: Create a practice exercise for: "${userInput}".`;
-      break;
-      
-    case 'SPEAKING':
-      prompt += ` Task: Create a natural speaking scenario or sentence for topic: "${userInput}".`;
-      break;
-      
-    case 'EXAM':
-      prompt += ` Task: Generate specific exam content for: "${userInput}".`;
-      break;
-
-    case 'FEEDBACK':
-      prompt += ` Task: Analyze and provide feedback on the following input: "${userInput}".`;
-      break;
-      
-    default:
-      prompt += ` ${userInput}`;
-      break;
-  }
-  
-  return prompt.trim();
-};
 
 // --- Placement Test ---
 
 export const generatePlacementTest = async (): Promise<PlacementQuestion[]> => {
   const model = "gemini-2.5-flash";
   
-  // Using generic construction for this specific complex request
+  // Using generic construction for this specific complex request as it's a fixed setup
   const prompt = `
     mode=EXAM, level=MIXED.
     Generate an English placement test with exactly 7 questions (1 for each category).
@@ -115,13 +74,17 @@ export const determineLevel = async (score: number, total: number): Promise<Engl
 
 // --- Speaking & Shadowing ---
 
-export const generateSpeakingSentence = async (topic: string, level: string, lang: AppLanguage = 'en'): Promise<string> => {
+export const generateSpeakingSentence = async (topic: string, level: string, lang: AppLanguage = 'en'): Promise<SpeakingScenario> => {
   const model = "gemini-2.5-flash";
   const seed = Date.now();
   
   // Determine mode and level mapping
   let mode: AppMode = 'SPEAKING';
   let appLevel: AppLevel = level as AppLevel;
+
+  // Detect Special Modes
+  const isIELTSPart2 = topic.includes('IELTS Speaking Part 2');
+  const isRolePlay = topic.includes('Role Play') || topic.includes('Negotiating');
 
   if (topic.toUpperCase().includes('IELTS')) {
     mode = 'EXAM';
@@ -131,15 +94,107 @@ export const generateSpeakingSentence = async (topic: string, level: string, lan
     appLevel = 'CITIZENSHIP';
   }
 
+  // Handle IELTS Part 2 (Exam Mode)
+  if (isIELTSPart2) {
+    const settings: AppSettings = {
+      mode: 'EXAM',
+      level: 'IELTS',
+      topic: topic,
+      context: `Generate IELTS Speaking Part 2 Content. Random seed: ${seed}. Return JSON with cueCard, sampleAnswer, vocabulary.`
+    };
+    
+    let prompt = buildGeminiPrompt(settings, topic);
+    
+    const schema: Schema = {
+      type: Type.OBJECT,
+      properties: {
+        type: { type: Type.STRING, enum: ['EXAM'] },
+        cueCard: { type: Type.STRING },
+        sampleAnswer: { type: Type.STRING },
+        vocabulary: { 
+          type: Type.ARRAY, 
+          items: { 
+            type: Type.OBJECT, 
+            properties: { word: { type: Type.STRING }, definition: { type: Type.STRING } } 
+          } 
+        }
+      },
+      required: ["type", "cueCard", "sampleAnswer"]
+    };
+
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: schema }
+      });
+      const data = JSON.parse(response.text!);
+      return { ...data, type: 'EXAM' } as ExamSpeakingContent;
+    } catch (e) {
+      return "IELTS Content Error";
+    }
+  }
+
+  // Handle Role Play (Dialogue Mode)
+  if (isRolePlay) {
+    const settings: AppSettings = {
+      mode: 'SPEAKING',
+      level: appLevel,
+      topic: topic,
+      context: `Create a role-play dialogue. Random seed: ${seed}. JSON format.`
+    };
+
+    let prompt = buildGeminiPrompt(settings, "Create a role-play dialogue");
+    
+    const schema: Schema = {
+      type: Type.OBJECT,
+      properties: {
+        type: { type: Type.STRING, enum: ['DIALOGUE'] },
+        targetSentence: { type: Type.STRING, description: "One representative sentence for shadowing" },
+        dialogue: { 
+          type: Type.ARRAY, 
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              speaker: { type: Type.STRING },
+              text: { type: Type.STRING },
+              translation: { type: Type.STRING }
+            }
+          }
+        },
+        usefulPhrases: {
+          type: Type.ARRAY,
+          items: {
+             type: Type.OBJECT,
+             properties: { phrase: { type: Type.STRING }, translation: { type: Type.STRING } }
+          }
+        }
+      },
+      required: ["type", "targetSentence", "dialogue", "usefulPhrases"]
+    };
+
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: schema }
+      });
+      const data = JSON.parse(response.text!);
+      return { ...data, type: 'DIALOGUE' } as RolePlayScenario;
+    } catch (e) {
+      return "Role Play Error";
+    }
+  }
+
+  // Default: Single Sentence
   const settings: AppSettings = {
     mode,
     level: appLevel,
     topic,
-    context: `Generate a single natural sentence (8-15 words). Random seed: ${seed}.`
+    context: `Generate a single natural sentence (8-15 words). Random seed: ${seed}. Return JSON with property 'sentence'.`
   };
 
   let prompt = buildGeminiPrompt(settings, topic);
-  prompt += " Return JSON with property 'sentence'.";
 
   const schema: Schema = {
     type: Type.OBJECT,
@@ -172,7 +227,7 @@ export const evaluateSpeaking = async (
   
   const settings: AppSettings = {
     mode: 'FEEDBACK',
-    level: 'DEFAULT', // Level isn't critical for phonetic analysis but required by type
+    level: 'DEFAULT', 
     topic: 'Pronunciation',
     context: `Target sentence: "${targetSentence}". Provide feedback in ${languageName}.`
   };
@@ -247,7 +302,7 @@ export const evaluateSpeaking = async (
       isCorrect: rawData.isCorrect,
       transcription: rawData.transcription,
       feedback: rawData.feedback,
-      mispronouncedWords: rawData.mispronouncedWords,
+      mispronouncedWords: rawData.mispronouncedWords || [], // SAFEGUARD: Default to empty array
       phoneticGuidance: phoneticMap
     };
 
@@ -286,9 +341,16 @@ export const generateVocabDrill = async (word: string, lang: AppLanguage = 'en')
 
   const settings: AppSettings = {
     mode: 'EXERCISE',
-    level: EnglishLevel.B1, // Defaulting to B1 for drills if not specified, could be passed in
+    level: EnglishLevel.B1, 
     topic: word,
-    context: `Target Language: ${languageName}. Create situations, quizzes, and translation challenges.`
+    // Add "JSON Drill" to context so promptBuilder knows to be specific for JSON
+    context: `Target Language: ${languageName}. JSON Drill format. 
+    IMPORTANT: 
+    1. The 'word' property MUST be the ENGLISH word "${word}". 
+    2. 'wordForms' (noun, verb, adj, adv) MUST be filled with English words. Do not return null. If a form doesn't exist, use N/A.
+    3. 'situations' MUST contain exactly 3 example sentences in English with ${languageName} translation.
+    4. 'definition' MUST be in ${languageName}.
+    5. 'meaningQuiz' options MUST be in ${languageName}. The wrong options (distractors) must be PLAUSIBLE meanings of OTHER words, not just 'Wrong Answer'.` 
   };
 
   let prompt = buildGeminiPrompt(settings, word);
@@ -298,6 +360,7 @@ export const generateVocabDrill = async (word: string, lang: AppLanguage = 'en')
     type: Type.OBJECT,
     properties: {
       word: { type: Type.STRING },
+      definition: { type: Type.STRING },
       situations: { 
         type: Type.ARRAY, 
         items: { 
@@ -353,16 +416,66 @@ export const generateVocabDrill = async (word: string, lang: AppLanguage = 'en')
         responseSchema: schema
       }
     });
-    return JSON.parse(response.text!) as VocabDrillContent;
+    
+    // Parse result
+    const data = JSON.parse(response.text!) as VocabDrillContent;
+
+    // --- SAFETY CHECK: Backfill missing data to prevent UI crashes ---
+    
+    // Check Meaning Quiz
+    if (!data.meaningQuiz?.options || data.meaningQuiz.options.length < 2) {
+      const fallbackDef = data.definition || (lang === 'vi' ? `Nghĩa của ${word}` : `Definition of ${word}`);
+      const fallbackWrong1 = lang === 'vi' ? "Định nghĩa sai 1" : "Something else";
+      const fallbackWrong2 = lang === 'vi' ? "Định nghĩa sai 2" : "Another incorrect option";
+
+      data.meaningQuiz = {
+        question: lang === 'vi' ? `"${word}" có nghĩa là gì?` : `What is the meaning of "${word}"?`,
+        options: [fallbackDef, fallbackWrong1, fallbackWrong2],
+        correctIndex: 0
+      };
+    }
+
+    // Check Translation Quiz
+    if (!data.translationQuiz?.scrambledEnglish || data.translationQuiz.scrambledEnglish.length === 0) {
+      data.translationQuiz = {
+         nativeSentence: lang === 'vi' ? `(Dịch: ${word})` : `(Translate: ${word})`,
+         correctEnglish: word,
+         scrambledEnglish: [word, "is", "the", "answer"]
+      };
+    }
+
+    // Check Scramble Sentence
+    if (!data.scrambleSentence?.scrambled || data.scrambleSentence.scrambled.length === 0) {
+       data.scrambleSentence = {
+         scrambled: ["This", "is", "an", "example", "for", word],
+         correct: `This is an example for ${word}`,
+         translation: lang === 'vi' ? `(Ví dụ câu cho ${word})` : `(Sentence example for ${word})`
+       };
+    }
+
+    return data;
   } catch (e) {
     console.error(e);
+    // Complete Fallback - More natural fallback to avoid "Template" look
     return {
       word: word,
-      situations: [{ english: "Example 1", translation: "Ví dụ 1" }],
-      meaningQuiz: { question: "Meaning?", options: ["A", "B", "C"], correctIndex: 0 },
-      translationQuiz: { nativeSentence: "Test", correctEnglish: "Test", scrambledEnglish: ["Test"] },
-      scrambleSentence: { scrambled: ["This", "is", "test"], correct: "This is test", translation: "Đây là bài kiểm tra" },
-      wordForms: {}
+      definition: lang === 'vi' ? `Nghĩa của ${word} (Đang tải...)` : `Definition of ${word} (Loading...)`,
+      situations: [
+        { english: `Example using ${word}.`, translation: `Ví dụ sử dụng ${word}.` },
+        { english: `Another usage of ${word}.`, translation: `Một cách dùng khác của ${word}.` }
+      ],
+      meaningQuiz: { 
+        question: lang === 'vi' ? `Chọn nghĩa đúng của ${word}` : `Select the correct meaning of ${word}`,
+        options: [
+           lang === 'vi' ? `Nghĩa chính xác của ${word}` : `Correct meaning of ${word}`, 
+           lang === 'vi' ? "Một từ hoàn toàn khác" : "A completely different word", 
+           lang === 'vi' ? "Không liên quan" : "Unrelated concept"
+        ], 
+        correctIndex: 0 
+      },
+      translationQuiz: { nativeSentence: `(Dịch từ: ${word})`, correctEnglish: word, scrambledEnglish: [word, "meaning"] },
+      scrambleSentence: { scrambled: [word, "is", "here"], correct: `${word} is here`, translation: `${word} ở đây` },
+      wordForms: { noun: word, verb: "N/A", adjective: "N/A", adverb: "N/A" }
     };
   }
 };
@@ -373,14 +486,40 @@ export const generateNewVocab = async (topic: string, level: string = "B1", lang
   const model = "gemini-2.5-flash";
   const languageName = lang === 'vi' ? 'Vietnamese' : 'English';
   
+  // 1. Determine the target topic (handle Random)
+  let targetTopic = topic;
+  const availableTopics = TOPIC_VOCAB_LISTS ? Object.keys(TOPIC_VOCAB_LISTS) : [];
+  
+  if (targetTopic === 'Random' || !availableTopics.includes(targetTopic)) {
+     if (availableTopics.length > 0) {
+       targetTopic = availableTopics[Math.floor(Math.random() * availableTopics.length)];
+     } else {
+       targetTopic = "Daily Life";
+     }
+  }
+
+  // 2. Select a specific word from the static list
+  // This fixes the bug where "Vocabulary Word" generic string was passed to the prompt
+  const vocabList = (TOPIC_VOCAB_LISTS && TOPIC_VOCAB_LISTS[targetTopic]) ? TOPIC_VOCAB_LISTS[targetTopic] : ["Serendipity", "Resilience", "Ephemeral"];
+  const randomIndex = Math.floor(Math.random() * vocabList.length);
+  const selectedWord = vocabList[randomIndex] || "Serendipity";
+
   const settings: AppSettings = {
     mode: 'EXPLAIN', // Using EXPLAIN to get definitions
     level: level as AppLevel,
-    topic: topic,
-    context: `Generate ONE necessary vocabulary word. Definitions/translations in ${languageName}.`
+    topic: targetTopic,
+    context: `Define the ENGLISH word "${selectedWord}". 
+    IMPORTANT: 
+    1. 'word': "${selectedWord}" (English).
+    2. 'definition': Provide the definition in ${languageName}.
+    3. 'example': Sentence in English.
+    4. 'exampleTranslation': Sentence in ${languageName}.
+    5. 'pronunciation': IPA string.
+    `
   };
 
-  let prompt = buildGeminiPrompt(settings, "Vocabulary Word");
+  // 3. Build prompt using the SPECIFIC word
+  let prompt = buildGeminiPrompt(settings, selectedWord);
   prompt += " Return JSON.";
 
   const schema: Schema = {
@@ -405,13 +544,15 @@ export const generateNewVocab = async (topic: string, level: string = "B1", lang
     });
     return JSON.parse(response.text!) as NewVocabCard;
   } catch (e) {
+    const isVi = lang === 'vi';
     return { 
       word: "Serendipity", 
-      definition: "Finding something good without looking for it.", 
+      definition: isVi ? "Khả năng tình cờ phát hiện ra những điều thú vị hoặc may mắn." : "Finding something good without looking for it.", 
       example: "It was serendipity that we met.", 
-      exampleTranslation: "Thật tình cờ may mắn là chúng ta đã gặp nhau.",
-      topic: topic, 
-      level: level 
+      exampleTranslation: isVi ? "Thật tình cờ may mắn là chúng ta đã gặp nhau." : "It was luck that we met.",
+      topic: targetTopic, 
+      level: level,
+      pronunciation: "/ˌser.ənˈdɪp.ə.ti/"
     };
   }
 };
@@ -425,9 +566,10 @@ export const generateGrammarExercise = async (topic: string, lang: AppLanguage =
 
   const settings: AppSettings = {
     mode: 'EXERCISE',
-    level: EnglishLevel.B1, // Could be dynamic
+    level: EnglishLevel.B1,
     topic: topic,
-    context: `Create a unique multiple choice grammar question. Explanation in ${languageName}. Random Seed: ${seed}.`
+    // Context indicates JSON to promptBuilder
+    context: `Create a unique multiple choice grammar question. Explanation in ${languageName}. Random Seed: ${seed}. JSON.`
   };
 
   let prompt = buildGeminiPrompt(settings, topic);
@@ -474,7 +616,7 @@ export const generateGrammarRecallQuestions = async (topic: string, rule: string
     mode: 'EXERCISE',
     level: EnglishLevel.B1,
     topic: topic,
-    context: `Rule: "${rule}". Generate 3 questions testing this rule. Explanations in ${languageName}.`
+    context: `Rule: "${rule}". Generate 3 questions testing this rule. Explanations in ${languageName}. JSON.`
   };
 
   let prompt = buildGeminiPrompt(settings, topic);
@@ -511,18 +653,28 @@ export const generateGrammarRecallQuestions = async (topic: string, rule: string
 // --- Writing/Feedback Assistant ---
 
 export const checkUserText = async (text: string, level: string, lang: AppLanguage = 'en'): Promise<string> => {
-  const model = "gemini-2.5-flash";
-  const languageName = lang === 'vi' ? 'Vietnamese' : 'English';
-  
-  const settings: AppSettings = {
+  return askGenericAI({
     mode: 'FEEDBACK',
     level: level as AppLevel,
     topic: 'Writing Correction',
-    context: `Provide constructive feedback and corrections. Explain in ${languageName}.`
-  };
+    context: `Provide constructive feedback and corrections. Explain in ${lang === 'vi' ? 'Vietnamese' : 'English'}.`
+  }, text);
+};
 
-  const prompt = buildGeminiPrompt(settings, text);
+// --- Generic AI Request (For UI Playground) ---
+
+export const askGenericAI = async (settings: AppSettings, userInput: string): Promise<string> => {
+  const model = "gemini-2.5-flash";
+  const prompt = buildGeminiPrompt(settings, userInput);
   
-  const response = await ai.models.generateContent({ model, contents: prompt });
-  return response.text || "Feedback unavailable.";
+  try {
+    const response = await ai.models.generateContent({ 
+      model, 
+      contents: prompt 
+    });
+    return response.text || "No response generated.";
+  } catch (error) {
+    console.error("Gemini Generic Error:", error);
+    return "Error connecting to AI. Please try again.";
+  }
 };
