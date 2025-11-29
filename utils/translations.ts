@@ -1,3 +1,4 @@
+
 // --- utils/translations.ts ---
 
 export type AppLanguage = 'en' | 'vi';
@@ -95,7 +96,7 @@ export const translations = {
     startGauntlet: "Start The Gauntlet",
     gauntletSuccess: "You have mastered this grammar point!",
     gauntletFail: "You missed one! Review the rule and try again.",
-    savedToGrammarList: "Saved to Grammar Review"
+    savedToGrammarList: "Saved to Grammar Review",
   },
   vi: {
     // Welcome
@@ -189,6 +190,6 @@ export const translations = {
     startGauntlet: "Bắt đầu thử thách",
     gauntletSuccess: "Bạn đã nắm vững điểm ngữ pháp này!",
     gauntletFail: "Sai rồi! Hãy xem lại quy tắc và thử lại.",
-    savedToGrammarList: "Đã lưu vào Ôn Tập Ngữ Pháp"
+    savedToGrammarList: "Đã lưu vào Ôn Tập Ngữ Pháp",
   }
 };

@@ -1,3 +1,4 @@
+
 // --- types.ts ---
 
 export enum AppView {
@@ -26,10 +27,11 @@ export enum EnglishLevel {
   UNKNOWN = 'UNKNOWN'
 }
 
-// Extended level type for Prompt Generation
 export type AppLevel = EnglishLevel | 'IELTS' | 'TOEIC' | 'CITIZENSHIP' | 'MIXED' | 'DEFAULT';
 
-export type AppMode = 'EXPLAIN' | 'EXERCISE' | 'SPEAKING' | 'EXAM' | 'FEEDBACK';
+// Strict Tutor Modes
+export type TutorMode = 'WRITING_FEEDBACK' | 'ANSWER_CHECK' | 'SPEAKING_FEEDBACK';
+export type AppMode = TutorMode | 'EXPLAIN' | 'EXERCISE' | 'SPEAKING' | 'EXAM' | 'FEEDBACK'; // Legacy support
 
 export interface AppSettings {
   level: AppLevel;
@@ -38,24 +40,16 @@ export interface AppSettings {
   context?: string;
 }
 
-// Centralized constants for the app
 export const LEARNING_TOPICS = [
   "Daily Life", 
   "Work & Business", 
-  "Travel", 
-  "Academic", 
-  "Technology", 
+  "Citizenship",
   "Socializing", 
-  "Health", 
-  "Art & Culture", 
-  "Slang", 
   "IELTS", 
-  "IELTS Speaking Part 2",
-  "Role Play",
-  "Fun"
+  "Slang"
 ];
 
-export const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
+export const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1"];
 
 export type AppLanguage = 'en' | 'vi';
 
@@ -63,7 +57,7 @@ export interface GrammarPoint {
   id: string;
   topic: string;
   rule: string;
-  proficiency: number; // 0-3
+  proficiency: number;
   lastReviewed?: string;
 }
 
@@ -74,8 +68,8 @@ export interface UserProfile {
   level: EnglishLevel;
   xp: number;
   streak: number;
-  badges: Badge[];
-  titles: string[]; // e.g. "Vocabulary Master", "Grammar Guru"
+  badges: string[]; // Store Badge IDs now
+  titles: string[];
   vocabList: VocabWord[];
   grammarList: GrammarPoint[];
   isReturning: boolean;
@@ -87,30 +81,37 @@ export interface UserProfile {
   language?: AppLanguage;
 }
 
-export interface Badge {
+export type BadgeType = 'streak' | 'words' | 'sentences' | 'grammar';
+
+export interface BadgeDefinition {
   id: string;
-  name: string;
+  name: { en: string; vi: string };
+  description: { en: string; vi: string };
   icon: string;
-  description: string;
-  earnedDate: string;
+  type: BadgeType;
+  threshold: number;
+}
+
+export interface Badge extends BadgeDefinition {
+  earnedDate?: string;
 }
 
 export interface VocabWord {
   id: string;
   word: string;
   definition: string;
-  masteryLevel: number; // 0-5
+  masteryLevel: number;
   lastReviewed?: string;
 }
 
-export type PlacementCategory = 'Academy' | 'Work' | 'IELTS' | 'TOEIC' | 'Daily Life' | 'Speaking' | 'Slang';
+export type PlacementCategory = 'Grammar' | 'Vocabulary' | 'Listening' | 'Reading' | 'Work' | 'Slang' | 'Daily' | 'IELTS' | 'TOEIC';
 
 export interface PlacementQuestion {
-  id: number;
+  id: string | number;
   category: PlacementCategory;
-  questionText: string;
+  question: string; // Unified from questionText
   options: string[];
-  correctAnswerIndex: number;
+  correct: string; // Unified from correct/correctAnswerIndex logic
 }
 
 export interface SpeakingFeedback {
@@ -123,11 +124,12 @@ export interface SpeakingFeedback {
 
 export interface VocabDrillContent {
   word: string;
-  definition: string; // Native translation
+  ipa?: string; // pronunciation
+  definition: string;
   situations: { english: string; translation: string }[];
   meaningQuiz: {
     question: string;
-    options: string[]; // Options in user's native language
+    options: string[];
     correctIndex: number;
   };
   translationQuiz: {
@@ -173,18 +175,85 @@ export interface DialogueLine {
   translation?: string;
 }
 
-export interface ExamSpeakingContent {
-  type: 'EXAM';
-  cueCard: string;
+export type SpeakingScenarioType = 'DIALOGUE' | 'EXAM' | 'SIMPLE';
+
+export interface SpeakingScenarioData {
+    type: SpeakingScenarioType;
+    prompt: string; // Main display text
+    subText?: string; // Context or role description
+    sampleAnswer?: string;
+}
+
+export interface Quote {
+  id: string;
+  text: string;
+  translation: string;
+  author: string;
+  category: 'Learning' | 'Inspiration' | 'Motivation' | 'Atomic Tip' | 'Fun Fact';
+}
+
+// --- STORED DATA SCHEMAS ---
+
+export type QuizQuestion = {
+  id: string;
+  question: string;
+  options: string[];
+  correct: string;
+  category: "Daily" | "Work" | "IELTS" | "TOEIC" | "Grammar" | "Vocabulary" | "Listening" | "Reading" | "Slang";
+};
+
+export type GrammarLesson = {
+  id: string;
+  title: string;
+  explanation: string;
+  examples: { en: string; vi: string }[];
+  exercises: {
+    question: string;
+    options: string[];
+    answer: string;
+  }[];
+};
+
+export type GrammarRecallItem = {
+  id: string;
+  prompt: string;
+  options: string[];
+  answer: string;
+};
+
+export type SpeakingPrompt = {
+  id: string;
+  topic: string;
+  question: string;
   sampleAnswer: string;
-  vocabulary: { word: string, definition: string }[];
-}
+};
 
-export interface RolePlayScenario {
-  type: 'DIALOGUE';
-  dialogue: DialogueLine[];
-  usefulPhrases: { phrase: string; translation: string }[];
-  targetSentence: string; // The specific sentence to shadow
-}
+export type ShadowingItem = {
+  id: string;
+  topic: string;
+  text: string;
+  translationVi: string;
+};
 
-export type SpeakingScenario = string | RolePlayScenario | ExamSpeakingContent;
+export type VocabItem = {
+  word: string;
+  ipa?: string;
+  definitionEn: string;
+  definitionVi: string;
+  examples: { en: string; vi: string }[];
+  wordForms: {
+    noun?: string;
+    verb?: string;
+    adjective?: string;
+    adverb?: string;
+  };
+  topic: string;
+};
+
+export type VocabRecallItem = {
+  word: string;
+  definitionVi: string;
+  exampleEn: string;
+  exampleVi: string;
+  topic: string;
+};

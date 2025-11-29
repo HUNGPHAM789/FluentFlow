@@ -1,7 +1,7 @@
+
 // --- components/MarkdownRenderer.tsx ---
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 interface MarkdownRendererProps {
   content: string;
@@ -11,7 +11,6 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
   return (
     <div className="markdown-content">
       <ReactMarkdown 
-        remarkPlugins={[remarkGfm]}
         components={{
             // Customizing how headings look to match FluentFlow brand
             h2: ({node, ...props}) => <h2 className="section-title" {...props} />,
