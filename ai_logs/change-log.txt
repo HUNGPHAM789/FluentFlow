@@ -1,0 +1,4 @@
+=== FLUENTFLOW AI DEV LOG STARTED ===
+INIT TIME: 2025-05-20 10:00:00
+AI MODE: Google AI Studio – Build Mode (App Mode)
+===========================================

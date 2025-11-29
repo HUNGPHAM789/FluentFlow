@@ -10,9 +10,10 @@ import { translations } from './utils/translations';
 import { englishQuotes } from './data/englishQuotes';
 import { BADGE_DEFINITIONS } from './data/badges';
 import { vocabData } from './data/vocabData';
+import { STORAGE_KEYS, clearAppStorage, loadUserProfile, saveUserProfile, getStoredVersion, setStoredVersion } from './utils/storage';
 
 // Increment this version to force a data reset for all users
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.4';
 
 /* -------------------------------------------------------------------------- */
 /*                            SHARED COMPONENTS                               */
@@ -504,8 +505,8 @@ const QuoteCard: React.FC = () => {
     const ONE_MINUTE = 60 * 1000;
     const TEN_MINUTES = 10 * ONE_MINUTE;
 
-    const storedQuote = localStorage.getItem('fluent_quote');
-    const storedTime = localStorage.getItem('fluent_quote_time');
+    const storedQuote = localStorage.getItem(STORAGE_KEYS.QUOTE);
+    const storedTime = localStorage.getItem(STORAGE_KEYS.QUOTE_TIME);
     const now = Date.now();
 
     if (storedQuote && storedTime && (now - parseInt(storedTime)) < TEN_MINUTES) {
@@ -513,8 +514,8 @@ const QuoteCard: React.FC = () => {
     } else {
       const randomQuote = englishQuotes[Math.floor(Math.random() * englishQuotes.length)];
       setQuote(randomQuote);
-      localStorage.setItem('fluent_quote', JSON.stringify(randomQuote));
-      localStorage.setItem('fluent_quote_time', now.toString());
+      localStorage.setItem(STORAGE_KEYS.QUOTE, JSON.stringify(randomQuote));
+      localStorage.setItem(STORAGE_KEYS.QUOTE_TIME, now.toString());
     }
   }, []);
 
@@ -961,6 +962,8 @@ const VocabDrillView: React.FC<{
   const [content, setContent] = useState<VocabDrillContent | null>(null);
   const [step, setStep] = useState<'INTRO' | 'QUIZ_MEANING' | 'QUIZ_TRANS' | 'QUIZ_SCRAMBLE' | 'SUCCESS'>('INTRO');
   const [mistakes, setMistakes] = useState(0);
+  const [isAllMastered, setIsAllMastered] = useState(false);
+  const processedRef = useRef(false);
   const t = translations[user.language || 'en'] || translations.en;
   
   // Interactive Quiz State
@@ -968,14 +971,25 @@ const VocabDrillView: React.FC<{
   const [wordBank, setWordBank] = useState<{id: string, word: string}[]>([]);
   const [quizStatus, setQuizStatus] = useState<'IDLE' | 'CORRECT' | 'WRONG'>('IDLE');
 
-  const startDrill = async () => {
-    // Pick a word (prioritize those with mastery < 3, else random)
-    const candidates = user.vocabList.filter(v => v.masteryLevel < 3);
-    const target = candidates.length > 0 
-      ? candidates[Math.floor(Math.random() * candidates.length)] 
-      : user.vocabList[Math.floor(Math.random() * user.vocabList.length)];
+  // Explicitly derive active words (excluding mastered)
+  // Mastery Level 3+ is considered "Mastered"
+  const activeWords = useMemo(() => {
+    return user.vocabList.filter(v => v.masteryLevel < 3);
+  }, [user.vocabList]);
 
-    if (!target) return; // Empty list handled in render
+  const startDrill = async () => {
+    processedRef.current = false;
+
+    if (activeWords.length === 0) {
+       setIsAllMastered(true);
+       setCurrentWord(null);
+       setContent(null);
+       return;
+    }
+
+    setIsAllMastered(false);
+    // Pick a random word from the active list
+    const target = activeWords[Math.floor(Math.random() * activeWords.length)];
 
     setCurrentWord(target);
     setStep('INTRO');
@@ -987,8 +1001,12 @@ const VocabDrillView: React.FC<{
   };
 
   useEffect(() => {
-    if (user.vocabList.length > 0) {
+    // Only start drill once on mount or if we have words and no current content
+    if (activeWords.length > 0 && !currentWord) {
       startDrill();
+    } else if (activeWords.length === 0 && user.vocabList.length > 0) {
+      // If we have saved words but all are mastered
+      setIsAllMastered(true);
     }
   }, []);
 
@@ -1005,6 +1023,17 @@ const VocabDrillView: React.FC<{
        setWordBank(content.scrambleSentence.scrambled.map((w, i) => ({ id: `s-${i}`, word: w })));
     }
   }, [step, content]);
+
+  // Auto-save progress when completing a word
+  useEffect(() => {
+     if (step === 'SUCCESS' && currentWord && !processedRef.current) {
+         processedRef.current = true;
+         // Increase mastery if no mistakes, otherwise decrease (min 0) or stay same
+         // Logic: Correct = +1, Mistake = -1 (optional, can be stricter)
+         const newMastery = mistakes === 0 ? currentWord.masteryLevel + 1 : Math.max(0, currentWord.masteryLevel - 1);
+         onComplete(currentWord.word, newMastery);
+     }
+  }, [step]);
 
   const handleWordClick = (item: {id: string, word: string}, from: 'bank' | 'sentence') => {
       if (quizStatus === 'CORRECT') return; 
@@ -1044,6 +1073,17 @@ const VocabDrillView: React.FC<{
         </div>
       </div>
     );
+  }
+
+  if (isAllMastered) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center space-y-6">
+            <div className="text-6xl">🎓</div>
+            <h2 className="text-2xl font-bold text-slate-800">All Words Mastered!</h2>
+            <p className="text-slate-600 max-w-sm">You have mastered all your currently saved words. Go to "Discover Words" to add more challenging vocabulary!</p>
+            <Button onClick={onBack} variant="secondary">Back to Dashboard</Button>
+        </div>
+      );
   }
 
   if (!content || !currentWord) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin text-4xl">⏳</div></div>;
@@ -1240,10 +1280,7 @@ const VocabDrillView: React.FC<{
             </p>
             <div className="grid grid-cols-2 gap-4">
                <Button onClick={() => startDrill()} variant="secondary">{t.next}</Button>
-               <Button onClick={() => {
-                   onComplete(currentWord.word, mistakes === 0 ? currentWord.masteryLevel + 1 : Math.max(0, currentWord.masteryLevel - 1));
-                   onBack();
-               }}>{t.close}</Button>
+               <Button onClick={onBack}>{t.close}</Button>
             </div>
           </div>
         )}
@@ -1463,41 +1500,38 @@ const App: React.FC = () => {
     const [viewParams, setViewParams] = useState<any>({});
 
     useEffect(() => {
-        // Version Check to Clean Legacy Data
-        const savedVersion = localStorage.getItem('fluent_version');
+        // Safe Version Check & Migration
+        const savedVersion = getStoredVersion();
+        
         if (savedVersion !== APP_VERSION) {
-            console.warn("App version mismatch. Clearing local storage to prevent errors.");
-            localStorage.removeItem('fluent_user');
-            localStorage.setItem('fluent_version', APP_VERSION);
-            // Don't return here; just proceed to check if user exists (which will be false now)
-        }
-
-        // Check for saved user with Robust Error Handling for Schema Changes
-        const saved = localStorage.getItem('fluent_user');
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                
-                // MIGRATION LOGIC: Ensure new fields exist
-                // 1. Learning Stats
+            console.log(`[App] Version mismatch (Old: ${savedVersion} vs New: ${APP_VERSION}). Clearing app-specific storage.`);
+            
+            // Only clear OUR keys, not the whole browser storage
+            clearAppStorage(); 
+            
+            // Set new version
+            setStoredVersion(APP_VERSION);
+            
+            // Reset user state in memory
+            setUserProfile(null);
+            setView(AppView.WELCOME);
+        } else {
+            // Check for saved user with Robust Error Handling
+            const parsed = loadUserProfile();
+            if (parsed) {
+                 // MIGRATION LOGIC: Ensure new fields exist
                 if (!parsed.learningStats) {
                     parsed.learningStats = { wordsLearned: 0, sentencesSpoken: 0, grammarPoints: 0 };
                 }
-                // 2. Badges (ensure array exists)
                 if (!Array.isArray(parsed.badges)) {
                     parsed.badges = [];
                 }
-                // 3. Streak
                 if (typeof parsed.streak !== 'number') {
                     parsed.streak = 1;
                 }
                 
                 setUserProfile(parsed);
                 setView(AppView.DASHBOARD);
-            } catch (e) {
-                console.error("Failed to load user profile (corrupt data or schema mismatch). Resetting.", e);
-                localStorage.removeItem('fluent_user');
-                // View remains WELCOME
             }
         }
     }, []);
@@ -1517,7 +1551,7 @@ const App: React.FC = () => {
             language: lang
         };
         setUserProfile(newUser);
-        localStorage.setItem('fluent_user', JSON.stringify(newUser));
+        saveUserProfile(newUser);
         
         // If unknown level, go to placement, else dashboard
         setView(AppView.LANDING);
@@ -1525,7 +1559,7 @@ const App: React.FC = () => {
 
     const handleUpdateUser = (updated: UserProfile) => {
         setUserProfile(updated);
-        localStorage.setItem('fluent_user', JSON.stringify(updated));
+        saveUserProfile(updated);
     };
 
     const renderView = () => {
@@ -1584,8 +1618,12 @@ const App: React.FC = () => {
                         const idx = userProfile.vocabList.findIndex(v => v.word === word);
                         if (idx >= 0) {
                             const updatedList = [...userProfile.vocabList];
-                            updatedList[idx].masteryLevel = newMastery;
-                            updatedList[idx].lastReviewed = new Date().toISOString();
+                            // Use spread to ensure object immutability and trigger updates correctly
+                            updatedList[idx] = { 
+                                ...updatedList[idx], 
+                                masteryLevel: newMastery, 
+                                lastReviewed: new Date().toISOString() 
+                            };
                             handleUpdateUser({ ...userProfile, vocabList: updatedList });
                         }
                     }}
