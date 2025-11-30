@@ -10,7 +10,7 @@ import { translations } from './utils/translations';
 import { englishQuotes } from './data/englishQuotes';
 import { BADGE_DEFINITIONS } from './data/badges';
 import { vocabData } from './data/vocabData';
-import { STORAGE_KEYS, clearAppStorage, loadUserProfile, saveUserProfile, getStoredVersion, setStoredVersion } from './utils/storage';
+import { STORAGE_KEYS, clearAppStorage, loadUserProfile, saveUserProfile, getStoredVersion, setStoredVersion, loadVocabProgress, saveVocabProgress } from './utils/storage';
 
 // Increment this version to force a data reset for all users
 const APP_VERSION = '1.4';
@@ -964,6 +964,7 @@ const VocabDrillView: React.FC<{
   const [mistakes, setMistakes] = useState(0);
   const [isAllMastered, setIsAllMastered] = useState(false);
   const processedRef = useRef(false);
+  const [lastWordId, setLastWordId] = useState<string | null>(null);
   const t = translations[user.language || 'en'] || translations.en;
   
   // Interactive Quiz State
@@ -972,15 +973,20 @@ const VocabDrillView: React.FC<{
   const [quizStatus, setQuizStatus] = useState<'IDLE' | 'CORRECT' | 'WRONG'>('IDLE');
 
   // Explicitly derive active words (excluding mastered)
-  // Mastery Level 3+ is considered "Mastered"
+  // ONE-TIME MASTERY: Mastery Level >= 1 is considered "Mastered"
   const activeWords = useMemo(() => {
-    return user.vocabList.filter(v => v.masteryLevel < 3);
+    return user.vocabList.filter(v => (v.masteryLevel || 0) < 1);
   }, [user.vocabList]);
+
+  // NEW: Local pool state (initialized from activeWords)
+  // This allows us to remove mastered words immediately from the session
+  const [pool, setPool] = useState<VocabWord[]>(activeWords);
 
   const startDrill = async () => {
     processedRef.current = false;
-
-    if (activeWords.length === 0) {
+    
+    // Safety check if pool list is empty
+    if (pool.length === 0) {
        setIsAllMastered(true);
        setCurrentWord(null);
        setContent(null);
@@ -988,10 +994,20 @@ const VocabDrillView: React.FC<{
     }
 
     setIsAllMastered(false);
-    // Pick a random word from the active list
-    const target = activeWords[Math.floor(Math.random() * activeWords.length)];
+    
+    // Smart selection: Avoid same word twice in a row if possible
+    let candidates = pool;
+    if (candidates.length > 1 && lastWordId) {
+        candidates = candidates.filter(w => w.id !== lastWordId);
+    }
+    
+    // Fallback if candidates became empty (e.g. only 1 active word exists)
+    if (candidates.length === 0) candidates = pool;
+
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
 
     setCurrentWord(target);
+    setLastWordId(target.id);
     setStep('INTRO');
     setMistakes(0);
     setQuizStatus('IDLE');
@@ -1002,13 +1018,14 @@ const VocabDrillView: React.FC<{
 
   useEffect(() => {
     // Only start drill once on mount or if we have words and no current content
-    if (activeWords.length > 0 && !currentWord) {
+    // Rely on pool.length instead of activeWords
+    if (pool.length > 0 && !currentWord) {
       startDrill();
-    } else if (activeWords.length === 0 && user.vocabList.length > 0) {
-      // If we have saved words but all are mastered
+    } else if (pool.length === 0 && user.vocabList.length > 0 && !currentWord) {
+      // If we have saved words but all are mastered (or pool depleted)
       setIsAllMastered(true);
     }
-  }, []);
+  }, [pool.length]); 
 
   // Initialize interactive quiz data when step changes
   useEffect(() => {
@@ -1028,10 +1045,13 @@ const VocabDrillView: React.FC<{
   useEffect(() => {
      if (step === 'SUCCESS' && currentWord && !processedRef.current) {
          processedRef.current = true;
-         // Increase mastery if no mistakes, otherwise decrease (min 0) or stay same
-         // Logic: Correct = +1, Mistake = -1 (optional, can be stricter)
-         const newMastery = mistakes === 0 ? currentWord.masteryLevel + 1 : Math.max(0, currentWord.masteryLevel - 1);
+         // ONE-TIME MASTERY: If the user reached SUCCESS, they finished the drill.
+         // We simply mark it as mastered (1).
+         const newMastery = 1;
          onComplete(currentWord.word, newMastery);
+
+         // NEW: Remove from local pool immediately
+         setPool(prev => prev.filter(w => w.id !== currentWord.id));
      }
   }, [step]);
 
@@ -1275,6 +1295,15 @@ const VocabDrillView: React.FC<{
           <div className="text-center space-y-6 py-8">
             <div className="text-6xl animate-bounce">🏆</div>
             <h2 className="text-2xl font-bold text-slate-800">{t.drillComplete}</h2>
+            
+            {/* New Mastery Status */}
+            <div className="bg-slate-50 p-4 rounded-xl inline-block">
+               <div className="text-emerald-600 font-bold">
+                   <span className="block text-2xl mb-1">🌟 MASTERED! 🌟</span>
+                   <span className="text-sm font-normal text-slate-500">You won't see this word in drills again.</span>
+               </div>
+            </div>
+
             <p className="text-slate-600">
               {mistakes === 0 ? t.drillSuccess : t.drillFail}
             </p>
@@ -1518,6 +1547,9 @@ const App: React.FC = () => {
         } else {
             // Check for saved user with Robust Error Handling
             const parsed = loadUserProfile();
+            // Load separately tracked mastery progress
+            const progress = loadVocabProgress();
+
             if (parsed) {
                  // MIGRATION LOGIC: Ensure new fields exist
                 if (!parsed.learningStats) {
@@ -1528,6 +1560,15 @@ const App: React.FC = () => {
                 }
                 if (typeof parsed.streak !== 'number') {
                     parsed.streak = 1;
+                }
+                
+                // Merge mastery progress into the user's vocab list
+                if (parsed.vocabList) {
+                    parsed.vocabList = parsed.vocabList.map((v: VocabWord) => {
+                         // Prefer the separate progress file, fallback to existing, default 0
+                         const mastery = progress[v.word]?.masteryLevel ?? v.masteryLevel ?? 0;
+                         return { ...v, masteryLevel: mastery };
+                    });
                 }
                 
                 setUserProfile(parsed);
@@ -1618,13 +1659,26 @@ const App: React.FC = () => {
                         const idx = userProfile.vocabList.findIndex(v => v.word === word);
                         if (idx >= 0) {
                             const updatedList = [...userProfile.vocabList];
-                            // Use spread to ensure object immutability and trigger updates correctly
+                            
+                            // Safeguard: Ensure we do not downgrade mastery from 1 to 0 if previously mastered
+                            const currentLevel = updatedList[idx].masteryLevel || 0;
+                            const finalMastery = Math.max(currentLevel, newMastery);
+
+                            // Update local state
                             updatedList[idx] = { 
                                 ...updatedList[idx], 
-                                masteryLevel: newMastery, 
+                                masteryLevel: finalMastery, 
                                 lastReviewed: new Date().toISOString() 
                             };
                             handleUpdateUser({ ...userProfile, vocabList: updatedList });
+
+                            // Update separate progress storage
+                            const currentProgress = loadVocabProgress();
+                            currentProgress[word] = { 
+                                masteryLevel: finalMastery, 
+                                lastReviewed: new Date().toISOString() 
+                            };
+                            saveVocabProgress(currentProgress);
                         }
                     }}
                 /> : null;

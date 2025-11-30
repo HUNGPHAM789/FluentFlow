@@ -1,4 +1,71 @@
-=== FLUENTFLOW AI DEV LOG STARTED ===
-INIT TIME: 2025-05-20 10:00:00
-AI MODE: Google AI Studio – Build Mode (App Mode)
+=== LOG ENTRY: 2025-11-29 14:15 ===
+ACTION TYPE: file_create
+FILES AFFECTED:
+- utils/storage.ts
+DESCRIPTION:
+Created storage utility to safely handle app-scoped local storage and versioning, preventing global data wipes.
+CODE DIFF:
+(New file created)
+===========================================
+=== LOG ENTRY: 2025-11-29 14:16 ===
+ACTION TYPE: bug_fix
+FILES AFFECTED:
+- App.tsx
+DESCRIPTION:
+Fixed Vocab Drill repetition issue:
+1. Added visual Mastery Level indicators (Stars) so users know progress is saving.
+2. Implemented logic to prevent consecutive repetition of the same word.
+3. Added data migration to ensure all saved words have a valid masteryLevel.
+4. Refined activeWords filter to robustly exclude Level 3+ words.
+CODE DIFF:
++ if (typeof v.masteryLevel !== 'number') v.masteryLevel = 0;
++ const [lastWordId, setLastWordId] = useState<string | null>(null);
++ pool = pool.filter(w => w.id !== lastWordId);
+===========================================
+=== LOG ENTRY: 2025-11-29 14:20 ===
+ACTION TYPE: refactor
+FILES AFFECTED:
+- utils/storage.ts
+- App.tsx
+DESCRIPTION:
+Refactored Vocab Recall to use "One-Time Mastery" logic.
+1. Created separate `VOCAB_PROGRESS_KEY` storage to track mastery independently.
+2. Updated App initialization to merge this progress into the user profile.
+3. Changed mastery threshold: 1 correct answer = Mastered.
+4. Updated Drill view to filter out any word with masteryLevel >= 1.
+5. Removed star rating UI in favor of simple "Mastered" state.
+CODE DIFF:
++ export const VOCAB_PROGRESS_KEY = `${APP_PREFIX}vocab_progress_v1`;
++ const activeWords = user.vocabList.filter(v => (v.masteryLevel || 0) < 1);
++ const newMastery = mistakes === 0 ? 1 : 0;
+===========================================
+=== LOG ENTRY: 2025-11-29 14:25 ===
+ACTION TYPE: refactor
+FILES AFFECTED:
+- App.tsx
+DESCRIPTION:
+Simplified mastery logic to "Forgiving Mode".
+1. In Vocab Drill, finishing the drill (Success) now ALWAYS marks the word as Mastered (Level 1), regardless of mistakes made during the attempt.
+2. Updated `onComplete` handler to ensure mastery level never downgrades (uses `Math.max`).
+3. Updated Drill Success UI to always show "Mastered!" status.
+CODE DIFF:
+- const newMastery = mistakes === 0 ? 1 : 0;
++ const newMastery = 1; // Always master if drill completes
+
+- masteryLevel: newMastery,
++ masteryLevel: Math.max(userProfile.vocabList[idx].masteryLevel || 0, newMastery),
+===========================================
+=== LOG ENTRY: 2025-11-29 14:30 ===
+ACTION TYPE: refactor
+FILES AFFECTED:
+- App.tsx
+DESCRIPTION:
+Refactored Vocab Drill to use a local `pool` state for word selection. 
+This ensures that when a word is mastered, it is immediately removed from the active session pool, preventing it from appearing again until the session resets or reloads.
+Drill initialization still uses the filtered `activeWords` list.
+CODE DIFF:
++ const [pool, setPool] = useState<VocabWord[]>(activeWords);
+- if (activeWords.length === 0) {
++ if (pool.length === 0) {
++ setPool(prev => prev.filter(w => w.id !== currentWord.id));
 ===========================================

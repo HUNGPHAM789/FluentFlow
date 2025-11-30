@@ -10,6 +10,15 @@ export const STORAGE_KEYS = {
   QUOTE_TIME: `${APP_PREFIX}quote_time`,
 };
 
+export const VOCAB_PROGRESS_KEY = `${APP_PREFIX}vocab_progress_v1`;
+
+export type VocabProgress = {
+  [word: string]: {
+    masteryLevel: number; // 0 = not mastered, 1 = mastered
+    lastReviewed?: string;
+  };
+};
+
 /**
  * Clears only the keys associated with this application.
  * Prevents wiping data from other apps running on the same domain (e.g., localhost).
@@ -59,4 +68,25 @@ export const getStoredVersion = (): string | null => {
 
 export const setStoredVersion = (version: string) => {
   localStorage.setItem(STORAGE_KEYS.VERSION, version);
+};
+
+/**
+ * Loads the separate vocabulary progress map.
+ */
+export const loadVocabProgress = (): VocabProgress => {
+  const saved = localStorage.getItem(VOCAB_PROGRESS_KEY);
+  if (!saved) return {};
+  try {
+    return JSON.parse(saved);
+  } catch (e) {
+    console.error("[Storage] Failed to parse vocab progress", e);
+    return {};
+  }
+};
+
+/**
+ * Saves the separate vocabulary progress map.
+ */
+export const saveVocabProgress = (progress: VocabProgress) => {
+  localStorage.setItem(VOCAB_PROGRESS_KEY, JSON.stringify(progress));
 };
