@@ -1,7 +1,5 @@
-
-
 // --- utils/storage.ts ---
-import { UserProfile, GrammarProgress, GrammarLevel, GrammarLessonState, EnglishLevel, GrammarProgressRecord } from '../types';
+import { UserProfile, GrammarProgress, GrammarLevel, GrammarLessonState, EnglishLevel, GrammarProgressRecord, DrillPerformance } from '../types';
 import { grammarLevels } from '../data/grammarData';
 import { isPlacementHigherOrEqual } from './levelUtils';
 
@@ -16,6 +14,7 @@ export const STORAGE_KEYS = {
 
 export const VOCAB_PROGRESS_KEY = `${APP_PREFIX}vocab_progress_v1`;
 export const GRAMMAR_PROGRESS_KEY = `${APP_PREFIX}grammar_progress_v1`;
+export const DRILL_PERFORMANCE_KEY = `${APP_PREFIX}drill_performance_v1`;
 
 export type VocabProgress = {
   [word: string]: {
@@ -114,6 +113,101 @@ export const loadGrammarProgress = (): GrammarProgress => {
 export const saveGrammarProgress = (progress: GrammarProgress) => {
     localStorage.setItem(GRAMMAR_PROGRESS_KEY, JSON.stringify(progress));
 };
+
+/* -------------------------------------------------------------------------- */
+/*                        DRILL PERFORMANCE HELPERS                           */
+/* -------------------------------------------------------------------------- */
+
+export const getDrillPerformanceMap = (): Record<string, DrillPerformance> => {
+  const saved = localStorage.getItem(DRILL_PERFORMANCE_KEY);
+  if (!saved) return {};
+  try {
+    return JSON.parse(saved);
+  } catch (e) {
+    console.error("[Storage] Failed to parse drill performance", e);
+    return {};
+  }
+};
+
+export const saveDrillPerformanceMap = (map: Record<string, DrillPerformance>) => {
+  localStorage.setItem(DRILL_PERFORMANCE_KEY, JSON.stringify(map));
+};
+
+export const recordDrillResult = (drillId: string, isCorrect: boolean) => {
+  const map = getDrillPerformanceMap();
+  const existing = map[drillId] || {
+    drillId,
+    correctCount: 0,
+    incorrectCount: 0,
+  };
+
+  if (isCorrect) {
+    existing.correctCount = (existing.correctCount || 0) + 1;
+  } else {
+    existing.incorrectCount = (existing.incorrectCount || 0) + 1;
+  }
+  
+  existing.lastAnswerAt = new Date().toISOString();
+  
+  map[drillId] = existing;
+  saveDrillPerformanceMap(map);
+};
+
+export const getWeakDrillIds = (options: { limit?: number } = {}): string[] => {
+  const limit = options.limit || 20;
+  const map = getDrillPerformanceMap();
+  const drills = Object.values(map);
+
+  // Filter: drills with at least one incorrect answer are candidates
+  const candidates = drills.filter(d => d.incorrectCount > 0);
+  
+  const now = Date.now();
+  const ONE_HOUR = 60 * 60 * 1000;
+  const ONE_DAY = 24 * ONE_HOUR;
+
+  // Helper to determine time-based weight (Spaced Repetition Lite)
+  const getRecencyFactor = (lastAnswerAt?: string): number => {
+      if (!lastAnswerAt) return 1.5; // Treat unknown time as "old" (priority)
+      
+      const lastTime = new Date(lastAnswerAt).getTime();
+      const diff = now - lastTime;
+      
+      if (diff < 2 * ONE_HOUR) return 0.5; // Very recent -> Deprioritize
+      if (diff < ONE_DAY) return 0.8; // Recent -> Slight deprioritize
+      if (diff > 3 * ONE_DAY) return 1.2; // Older -> Boost priority
+      
+      return 1.0; // Standard > 24h
+  };
+
+  // Sort by weighted weakness
+  candidates.sort((a, b) => {
+    // Base mistake score: higher incorrect increases score, high correct decreases it slightly.
+    // We clamp it to a minimum of 0.1 to ensure the recency factor has something to multiply.
+    const baseScoreA = Math.max(0.1, a.incorrectCount - (a.correctCount * 0.3));
+    const baseScoreB = Math.max(0.1, b.incorrectCount - (b.correctCount * 0.3));
+    
+    const scoreA = baseScoreA * getRecencyFactor(a.lastAnswerAt);
+    const scoreB = baseScoreB * getRecencyFactor(b.lastAnswerAt);
+    
+    return scoreB - scoreA; // Descending
+  });
+
+  return candidates.slice(0, limit).map(d => d.drillId);
+};
+
+export const countDrillsAnsweredToday = (): number => {
+  const map = getDrillPerformanceMap();
+  const today = new Date().toDateString();
+  
+  return Object.values(map).filter(d => {
+    if (!d.lastAnswerAt) return false;
+    return new Date(d.lastAnswerAt).toDateString() === today;
+  }).length;
+};
+
+/* -------------------------------------------------------------------------- */
+/*                           LESSON STATES & LOGIC                            */
+/* -------------------------------------------------------------------------- */
 
 export const getLessonState = (lessonId: string, progress: GrammarProgress): GrammarLessonState => {
     return progress[lessonId]?.state || 'locked'; // Default locked unless computed otherwise

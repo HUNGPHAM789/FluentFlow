@@ -1,76 +1,3 @@
-
-
-
-=== LOG ENTRY: 2024-05-22 10:05:00 ===
-ACTION TYPE: ui_update
-LOG_TAG: grammar-ui
-FILES AFFECTED:
-- App.tsx
-DESCRIPTION:
-Added missing DashboardView and App component to fix 'no default export' error and complete navigation flow.
-CODE DIFF:
-+ const DashboardView = ...
-+ const App = ...
-+ export default App;
-===========================================
-=== LOG ENTRY: 2025-11-29 16:35 ===
-ACTION TYPE: feature_update
-LOG_TAG: grammar-progress
-FILES AFFECTED:
-- types.ts
-- utils/grammarStats.ts
-- components/GrammarProgressView.tsx
-- App.tsx
-DESCRIPTION:
-Implemented "Grammar Progress" screen to track learning stats by level.
-Created `calculateGrammarStats` utility to compute percentages from stored drills.
-Integrated new view into navigation (from Dashboard and Grammar Guru).
-CODE DIFF:
-+ export const calculateGrammarStats = ...
-+ <GrammarProgressView ... />
-+ <button onClick={() => setView(AppView.GRAMMAR_STATS)}>Stats</button>
-===========================================
-=== LOG ENTRY: 2025-11-29 17:05 ===
-ACTION TYPE: ui_update
-LOG_TAG: grammar-ui
-FILES AFFECTED:
-- App.tsx
-- components/GrammarProgressView.tsx
-DESCRIPTION:
-Updated Grammar Progress screen to use bilingual headers (EN/VI).
-Renamed navigation buttons from "Stats" to "Grammar Progress / Tiến độ Ngữ pháp".
-Added dynamic bilingual encouragement messages based on level percentage.
-CODE DIFF:
-- <button>Stats</button>
-+ <button>Grammar Progress / Tiến độ Ngữ pháp</button>
-- <h2>Grammar Progress</h2>
-+ <h2>Grammar Progress / Tiến độ Ngữ pháp</h2>
-===========================================
-=== LOG ENTRY: 2025-05-23 11:00:00 ===
-ACTION TYPE: file_create
-LOG_TAG: grammar-progress
-FILES AFFECTED:
-- src/engine/coreLearningEngine.ts
-- src/hooks/useLearningSession.ts
-DESCRIPTION:
-Created initial Core Learning Engine skeleton and hook wrapper with placeholder logic, no behavior changes yet.
-CODE DIFF:
-+ export class CoreLearningEngine { ... }
-+ export const useLearningSession = ...
-===========================================
-=== LOG ENTRY: 2025-05-23 11:25 ===
-ACTION TYPE: logic_update
-LOG_TAG: grammar-progress
-FILES AFFECTED:
-- src/engine/coreLearningEngine.ts
-- src/hooks/useLearningSession.ts
-DESCRIPTION:
-Implemented real Grammar support in CoreLearningEngine (startGrammarSession, getCurrentItem, submitAnswer) with in-memory session logic only; no UI or storage wiring yet.
-CODE DIFF:
-+ private static startGrammarSession(lessonId: string): LearningSession { ... }
-+ private static evaluateGrammarAnswer(drill, userAnswer): boolean { ... }
-+ static submitAnswer(session, answer): LearningResult { ... }
-===========================================
 === LOG ENTRY: 2025-05-23 11:45 ===
 ACTION TYPE: refactor
 LOG_TAG: grammar-progress
@@ -89,6 +16,7 @@ const { session, currentItem, start, submit } = useLearningSession({ type: 'GRAM
 const isCorrect = evaluateDrillAnswer(currentDrill, userAnswer);
 const { result, isComplete, stats } = submit(userAnswer);
 ===========================================
+
 === LOG ENTRY: 2025-05-23 12:05 ===
 ACTION TYPE: logic_update
 LOG_TAG: grammar-progress
@@ -111,4 +39,74 @@ export const addUserXp = (amount: number) => { ... }
 export const updateStreakOnActivity = () => { ... }
 static commitSession(session): UserProfile | null { ... }
 const updatedUser = commit(); if (updatedUser) onUpdateUser(updatedUser);
+===========================================
+
+=== LOG ENTRY: 2025-05-23 12:30 ===
+ACTION TYPE: ui_update
+LOG_TAG: grammar-ui
+FILES AFFECTED:
+- src/components/ProfileAndAchievementsView.tsx
+- App.tsx
+- types.ts
+DESCRIPTION:
+Created unified Profile & Achievements view that displays user XP, streak, level, grammar progress by CEFR level, and badges, and wired it into AppView navigation without changing engine or storage logic.
+CODE DIFF:
++ <ProfileAndAchievementsView user={user} ... />
++ case AppView.PROFILE_ACHIEVEMENTS: ...
+===========================================
+
+=== LOG ENTRY: 2025-05-23 13:00 ===
+ACTION TYPE: logic_update
+LOG_TAG: storage
+FILES AFFECTED:
+- types.ts
+- utils/storage.ts
+- src/engine/coreLearningEngine.ts
+DESCRIPTION:
+Added per-drill performance tracking for grammar (correct/incorrect counts and lastAnswerAt) via new DrillPerformance type, DRILL_PERFORMANCE_KEY storage map, and recordDrillResult called from CoreLearningEngine.submitAnswer. No UI changes yet.
+CODE DIFF:
++ export interface DrillPerformance { ... }
++ export const recordDrillResult = (drillId, isCorrect) => { ... }
++ recordDrillResult(currentItem.id, isCorrect);
+===========================================
+
+=== LOG ENTRY: 2025-05-23 13:30 ===
+ACTION TYPE: logic_update
+LOG_TAG: grammar-progress
+FILES AFFECTED:
+- utils/storage.ts
+- src/engine/coreLearningEngine.ts
+DESCRIPTION:
+Added review queue selection for grammar based on DrillPerformance via getWeakDrillIds and CoreLearningEngine.getGrammarReviewItems/startGrammarReviewSession. No UI changes; review data is internal only for now.
+CODE DIFF:
++ export const getWeakDrillIds = (options) => { ... }
++ static
+
+=== LOG ENTRY: 2025-05-23 14:00 ===
+ACTION TYPE: refactor
+LOG_TAG: navigation
+FILES AFFECTED:
+- App.tsx
+- src/components/DashboardView.tsx
+- src/components/GrammarGuruView.tsx
+- src/navigation/viewRegistry.ts
+DESCRIPTION:
+Introduced a minimal viewRegistry mapping AppView to components and refactored App.tsx to render core views through the registry while preserving existing routing behavior and props. Extracted DashboardView and GrammarGuruView to separate files to enable this.
+CODE DIFF:
++ export const viewRegistry = { [AppView.DASHBOARD]: DashboardView, ... };
++ const ActiveView = viewRegistry[view];
+===========================================
+
+=== LOG ENTRY: 2025-05-23 14:15 ===
+ACTION TYPE: refactor
+LOG_TAG: file-structure
+FILES AFFECTED:
+- navigation/viewRegistry.ts
+- components/*.tsx
+- engine/coreLearningEngine.ts
+- hooks/useLearningSession.ts
+DESCRIPTION:
+Flattened file structure by moving new components, hooks, and engine files from src/ to root directory to match existing project structure and fix relative module import errors.
+CODE DIFF:
+N/A (File moves)
 ===========================================

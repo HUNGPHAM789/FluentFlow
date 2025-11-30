@@ -16,7 +16,8 @@ export enum AppView {
   GRAMMAR_RECALL = 'GRAMMAR_RECALL',
   PROGRESS = 'PROGRESS',
   GRAMMAR_STATS = 'GRAMMAR_STATS',
-  WRITING_ASSISTANT = 'WRITING_ASSISTANT'
+  WRITING_ASSISTANT = 'WRITING_ASSISTANT',
+  PROFILE_ACHIEVEMENTS = 'PROFILE_ACHIEVEMENTS'
 }
 
 export enum EnglishLevel {
@@ -327,3 +328,10 @@ export type GrammarLevelGroup = {
   descriptionVi: string;
   lessons: GrammarPurposeLesson[];
 };
+
+export interface DrillPerformance {
+  drillId: string;
+  correctCount: number;
+  incorrectCount: number;
+  lastAnswerAt?: string;
+}

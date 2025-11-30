@@ -1,4 +1,3 @@
-
 // === LOG ENTRY: 2025-05-23 11:00:00 ===
 // ACTION TYPE: file_create
 // LOG_TAG: grammar-progress
@@ -11,8 +10,9 @@
 // + export class CoreLearningEngine { ... }
 // + export const useLearningSession = ...
 
-import { GrammarDrillItem, VocabDrillContent, BadgeDefinition } from '../types';
+import { GrammarDrillItem, VocabDrillContent, BadgeDefinition, UserProfile } from '../types';
 import { grammarLevels } from '../data/grammarData';
+import { addUserXp, updateStreakOnActivity, loadUserProfile, recordDrillResult, getWeakDrillIds } from '../utils/storage';
 
 export type LearningType = 'GRAMMAR' | 'VOCABULARY';
 
@@ -60,17 +60,26 @@ export class CoreLearningEngine {
    */
   static startSession(
     type: LearningType,
-    options: { lessonId?: string; mode?: 'NEW_LESSON' | 'REVIEW' | 'PLACEMENT' }
+    options: { lessonId?: string; mode?: 'NEW_LESSON' | 'REVIEW' | 'PLACEMENT'; limit?: number }
   ): LearningSession {
     console.log(`[CoreLearningEngine] Starting session: ${type}`, options);
 
-    if (type === 'GRAMMAR' && options.lessonId) {
-      return this.startGrammarSession(options.lessonId);
+    if (type === 'GRAMMAR') {
+      if (options.mode === 'REVIEW') {
+        return this.startGrammarReviewSession(options.limit);
+      }
+      if (options.lessonId) {
+        return this.startGrammarSession(options.lessonId);
+      }
     }
 
-    // Fallback Mock for Vocabulary (since it's not implemented yet)
+    if (type === 'VOCABULARY') {
+      return this.startVocabSession(options.lessonId);
+    }
+
+    // Fallback Mock (Safe default if type is unknown)
     const mockItem: LearningItem = {
-      id: `mock-${type.toLowerCase()}-1`,
+      id: `mock-generic-1`,
       type: type,
       masteryState: 'new',
       content: {
@@ -145,6 +154,67 @@ export class CoreLearningEngine {
   }
 
   /**
+   * Stub: Starts a vocabulary session.
+   * Currently returns an empty session as a placeholder for future implementation.
+   */
+  static startVocabSession(topicId?: string): LearningSession {
+    return {
+      sessionId: `vocab-${topicId ?? 'general'}-${Date.now()}`,
+      mode: 'NEW_LESSON',
+      items: [], // placeholder for now; vocab items will be loaded in future steps
+      currentIndex: 0,
+      stats: { correct: 0, incorrect: 0, xpGained: 0 },
+    };
+  }
+
+  /**
+   * Retrieves review items based on weak drill performance.
+   */
+  static getGrammarReviewItems(limit: number = 20): LearningItem[] {
+    const weakIds = getWeakDrillIds({ limit });
+    const items: LearningItem[] = [];
+
+    // Helper to find drill content
+    const findDrillContent = (id: string): GrammarDrillItem | undefined => {
+      for (const group of grammarLevels) {
+        for (const lesson of group.lessons) {
+          const d = lesson.drills.find(drill => drill.id === id);
+          if (d) return d;
+        }
+      }
+      return undefined;
+    };
+
+    weakIds.forEach(id => {
+      const content = findDrillContent(id);
+      if (content) {
+        items.push({
+          id: content.id,
+          type: 'GRAMMAR',
+          content: content,
+          masteryState: 'review'
+        });
+      }
+    });
+
+    return items;
+  }
+
+  /**
+   * Starts a grammar review session with weak items.
+   */
+  static startGrammarReviewSession(limit: number = 20): LearningSession {
+    const items = this.getGrammarReviewItems(limit);
+    return {
+      sessionId: `review_${Date.now()}`,
+      mode: 'REVIEW',
+      items: items,
+      currentIndex: 0,
+      stats: { correct: 0, incorrect: 0, xpGained: 0 }
+    };
+  }
+
+  /**
    * Retrieves the current item to be displayed to the user.
    */
   static getCurrentItem(session: LearningSession): LearningItem | null {
@@ -171,15 +241,30 @@ export class CoreLearningEngine {
       };
     }
 
+    // --- VOCAB ROUTING ---
+    if (currentItem.type === 'VOCABULARY') {
+      const result = this.submitVocabAnswer(session, answer);
+      
+      // Update session stats if result was returned
+      if (result.isCorrect) {
+        session.stats.correct++;
+        session.stats.xpGained += result.xpAwarded;
+        currentItem.masteryState = 'mastered';
+      } else {
+        session.stats.incorrect++;
+        currentItem.masteryState = 'learning';
+      }
+      
+      session.currentIndex++;
+      return result;
+    }
+
     let isCorrect = false;
 
-    // --- GRADNG LOGIC ---
+    // --- GRAMMAR GRADING LOGIC ---
     if (currentItem.type === 'GRAMMAR') {
       const drill = currentItem.content as GrammarDrillItem;
       isCorrect = this.evaluateGrammarAnswer(drill, answer);
-    } else {
-      // Mock logic for Vocab
-      isCorrect = true;
     }
 
     // --- UPDATE SESSION STATS (In-Memory) ---
@@ -192,6 +277,11 @@ export class CoreLearningEngine {
       currentItem.masteryState = 'learning';
     }
 
+    // --- RECORD MISTAKE TRACKING (Persistent) ---
+    if (currentItem.type === 'GRAMMAR') {
+       recordDrillResult(currentItem.id, isCorrect);
+    }
+
     // --- ADVANCE INDEX ---
     session.currentIndex++;
 
@@ -201,6 +291,18 @@ export class CoreLearningEngine {
       feedback: isCorrect ? "Correct!" : "Incorrect, keep trying!",
       xpAwarded: isCorrect ? 10 : 0,
       updatedItemState: currentItem.masteryState
+    };
+  }
+
+  /**
+   * Stub: Evaluate vocabulary answer.
+   */
+  static submitVocabAnswer(session: LearningSession, answer: unknown): LearningResult {
+    return {
+      isCorrect: false,
+      feedback: "Vocabulary mode not implemented yet.",
+      xpAwarded: 0,
+      updatedItemState: 'new',
     };
   }
 
@@ -229,5 +331,26 @@ export class CoreLearningEngine {
    */
   static getSessionStats(session: LearningSession): LearningSession['stats'] {
     return session.stats;
+  }
+
+  /**
+   * Commits the session results to persistent storage.
+   * Updates streak and adds XP.
+   */
+  static commitSession(session: LearningSession): UserProfile | null {
+     console.log('[CoreLearningEngine] Committing session stats:', session.stats);
+     
+     // 1. Update Streak (and last active timestamp)
+     let user = updateStreakOnActivity();
+     
+     // 2. Add XP if any gained
+     if (session.stats.xpGained > 0) {
+       user = addUserXp(session.stats.xpGained);
+     } else {
+       // Reload user in case updateStreakOnActivity modified it but we didn't add XP
+       user = loadUserProfile();
+     }
+     
+     return user;
   }
 }
