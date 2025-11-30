@@ -15,6 +15,7 @@ export enum AppView {
   GRAMMAR_REVIEW = 'GRAMMAR_REVIEW',
   GRAMMAR_RECALL = 'GRAMMAR_RECALL',
   PROGRESS = 'PROGRESS',
+  GRAMMAR_STATS = 'GRAMMAR_STATS',
   WRITING_ASSISTANT = 'WRITING_ASSISTANT'
 }
 
@@ -71,6 +72,7 @@ export interface UserProfile {
   level: EnglishLevel;
   xp: number;
   streak: number;
+  lastActive?: string;
   badges: string[]; // Store Badge IDs now
   titles: string[];
   vocabList: VocabWord[];

@@ -1,3 +1,6 @@
+
+
+
 // --- App.tsx ---
 // === LOG ENTRY: 2024-05-22 10:05:00 ===
 // ACTION TYPE: ui_update
@@ -27,6 +30,8 @@ import { grammarRecallData } from './data/grammarRecallData';
 import { STORAGE_KEYS, clearAppStorage, loadUserProfile, saveUserProfile, getStoredVersion, setStoredVersion, loadVocabProgress, saveVocabProgress, loadGrammarProgress, saveGrammarProgress, isLevelUnlocked, updateGrammarLessonProgress, isPreA0Completed, updateLessonProgress } from './utils/storage';
 import { getEffectiveLevel } from './utils/levelUtils';
 import { DrillRenderer } from './components/Drills';
+import GrammarProgressView from './components/GrammarProgressView';
+import { useLearningSession } from './hooks/useLearningSession';
 
 // Increment this version to force a data reset for all users
 const APP_VERSION = '1.5';
@@ -454,16 +459,22 @@ const GrammarGuruView: React.FC<{
   onBack: () => void;
   onGoToPlacement: () => void;
   onUpdateUser: (u: UserProfile) => void;
-}> = ({ user, onBack, onGoToPlacement, onUpdateUser }) => {
+  onViewStats: () => void;
+}> = ({ user, onBack, onGoToPlacement, onUpdateUser, onViewStats }) => {
   const [viewMode, setViewMode] = useState<'HOME' | 'DETAIL' | 'DRILL'>('HOME');
   const [selectedLesson, setSelectedLesson] = useState<GrammarPurposeLesson | null>(null);
   const [progress, setProgress] = useState(loadGrammarProgress());
   const [showLockInfo, setShowLockInfo] = useState<{level: string, message: string} | null>(null);
   
+  // Use Engine Hook
+  const { session, currentItem, start, submit, commit } = useLearningSession({
+    type: 'GRAMMAR',
+    lessonId: selectedLesson?.id
+  });
+
   // Drill State
-  const [drillIndex, setDrillIndex] = useState(0);
+  // We keep userAnswer local because inputs are controlled
   const [userAnswer, setUserAnswer] = useState<any>(null);
-  const [drillResults, setDrillResults] = useState<boolean[]>([]);
   const [lessonResult, setLessonResult] = useState<{correct: number, total: number, score: number} | null>(null);
 
   const effectiveLevel = getEffectiveLevel(user.level);
@@ -498,10 +509,14 @@ const GrammarGuruView: React.FC<{
 
   const startDrill = () => {
     if (!selectedLesson) return;
-    setDrillIndex(0);
-    setDrillResults([]);
+    
+    // Reset local view state
     setLessonResult(null);
-    setUserAnswer(null); // Reset answer
+    setUserAnswer(null); 
+    
+    // Start Engine Session
+    start();
+    
     setViewMode('DRILL');
     
     // Mark as in-progress if not mastered
@@ -513,22 +528,6 @@ const GrammarGuruView: React.FC<{
 
   const normalizeText = (text: string): string => {
     return String(text).trim().toLowerCase().replace(/\s+/g, ' ');
-  };
-
-  const evaluateDrillAnswer = (drill: GrammarDrillItem, answer: any): boolean => {
-    if (!drill) return false;
-
-    if (drill.type === 'reorder') {
-        const expectedArray = Array.isArray(drill.answer) ? drill.answer : [drill.answer];
-        const userArray = Array.isArray(answer) ? answer : [answer];
-        return normalizeText(expectedArray.join(' ')) === normalizeText(userArray.join(' '));
-    }
-
-    // String based comparison for multiple choice, fill blank, drag drop
-    const expected = Array.isArray(drill.answer) ? drill.answer[0] : drill.answer;
-    const userVal = Array.isArray(answer) ? answer[0] : answer;
-    
-    return normalizeText(String(expected)) === normalizeText(String(userVal));
   };
 
   const maybeUpgradePreA0ToA0 = (currentUser: UserProfile, currentProgress: GrammarProgress) => {
@@ -543,65 +542,51 @@ const GrammarGuruView: React.FC<{
       alert("Chúc mừng! Bạn đã hoàn thành tất cả bài Pre-A0. Cấp độ A0 – Ngữ pháp sống sót đã được mở khóa.");
   };
 
-  const finalizeLesson = (drills: GrammarDrillItem[], results: boolean[]) => {
+  const finalizeLesson = (correct: number, total: number) => {
       if (!selectedLesson) return;
 
-      const correctCount = results.filter(Boolean).length;
-      const totalDrills = drills.length;
-      const score = Math.round((correctCount / totalDrills) * 100);
+      const score = Math.round((correct / total) * 100);
 
-      // Save to storage
-      // Only mark mastered if score is perfect? Or simply completion?
-      // Requirement says: "When a user completes all drills in a lesson, that lesson is automatically marked as completed/mastered"
-      // Let's assume completion is enough, or maybe > 70%? 
-      // For now, let's treat completion of all items as mastery.
-      
       const newState: GrammarLessonState = 'mastered'; 
       
       const updatedProgress = updateLessonProgress(progress, selectedLesson.id, {
           state: newState,
-          completedDrills: totalDrills,
-          totalDrills,
+          completedDrills: total,
+          totalDrills: total,
           lastScore: score
       });
       
       setProgress(updatedProgress);
-      setLessonResult({ correct: correctCount, total: totalDrills, score });
+
+      // Commit session to profile (XP, Streak)
+      const updatedUser = commit();
+      if (updatedUser) {
+          onUpdateUser(updatedUser);
+      }
+
+      setLessonResult({ correct, total, score });
 
       // Check for auto-upgrade
       maybeUpgradePreA0ToA0(user, updatedProgress);
   };
 
   const handleCheckAnswer = () => {
-    if (!selectedLesson) return;
-    const currentDrill = selectedLesson.drills[drillIndex];
+    // Capture current drill for feedback before engine moves to next
+    const currentDrill = currentItem?.content as GrammarDrillItem;
     
-    const isCorrect = evaluateDrillAnswer(currentDrill, userAnswer);
+    const { result, isComplete, stats } = submit(userAnswer);
 
-    // Update results
-    setDrillResults(prev => {
-        const next = [...prev];
-        next[drillIndex] = isCorrect;
-        return next;
-    });
-
-    if (!isCorrect) {
-        alert("Incorrect. The correct answer is: " + (Array.isArray(currentDrill.answer) ? currentDrill.answer.join(" ") : currentDrill.answer));
+    if (!result.isCorrect && currentDrill) {
+         alert("Incorrect. The correct answer is: " + (Array.isArray(currentDrill.answer) ? currentDrill.answer.join(" ") : currentDrill.answer));
     } else {
         // Optional immediate feedback
     }
 
     // Move next or finalize
-    if (drillIndex + 1 < selectedLesson.drills.length) {
-        setDrillIndex(drillIndex + 1);
-        setUserAnswer(null);
+    if (isComplete) {
+        finalizeLesson(stats.correct, stats.correct + stats.incorrect);
     } else {
-        // Finalize
-        // Need to pass the FULL results including this one
-        const finalResults = [...drillResults];
-        finalResults[drillIndex] = isCorrect;
-        
-        finalizeLesson(selectedLesson.drills, finalResults);
+        setUserAnswer(null);
     }
   };
 
@@ -623,12 +608,17 @@ const GrammarGuruView: React.FC<{
   if (viewMode === 'HOME') {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col relative pb-20">
-         <div className="bg-white p-4 shadow-sm flex items-center gap-4 sticky top-0 z-10 border-b border-slate-200">
-             <button onClick={onBack} className="text-slate-500 hover:text-slate-800 font-medium">← Back</button>
-             <div>
-                <h2 className="font-bold text-slate-800 text-lg leading-tight">Grammar Guru</h2>
-                <p className="text-xs text-slate-500">Ngữ pháp theo mục đích sử dụng</p>
+         <div className="bg-white p-4 shadow-sm flex items-center justify-between sticky top-0 z-10 border-b border-slate-200">
+             <div className="flex items-center gap-4">
+                 <button onClick={onBack} className="text-slate-500 hover:text-slate-800 font-medium">← Back</button>
+                 <div>
+                    <h2 className="font-bold text-slate-800 text-lg leading-tight">Grammar Guru</h2>
+                    <p className="text-xs text-slate-500">Ngữ pháp theo mục đích sử dụng</p>
+                 </div>
              </div>
+             <button onClick={onViewStats} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-bold border border-blue-100 hover:bg-blue-100 transition-colors">
+                Grammar Progress / Tiến độ Ngữ pháp
+             </button>
          </div>
 
          <div className="p-4 space-y-6 max-w-2xl mx-auto w-full">
@@ -779,7 +769,9 @@ const GrammarGuruView: React.FC<{
 
   /* --- RENDER DRILL --- */
   if (viewMode === 'DRILL' && selectedLesson) {
-      const currentDrill = selectedLesson.drills[drillIndex];
+      const currentDrill = currentItem?.content as GrammarDrillItem;
+      const drillIndex = session?.currentIndex || 0;
+      const totalDrills = selectedLesson.drills.length;
 
       if (lessonResult) {
           return (
@@ -805,19 +797,23 @@ const GrammarGuruView: React.FC<{
       return (
           <div className="min-h-screen bg-slate-50 flex flex-col relative">
              <div className="w-full bg-slate-200 h-2">
-                 <div className="bg-blue-600 h-2 transition-all duration-300" style={{ width: `${(drillIndex / selectedLesson.drills.length) * 100}%` }}></div>
+                 <div className="bg-blue-600 h-2 transition-all duration-300" style={{ width: `${(drillIndex / totalDrills) * 100}%` }}></div>
              </div>
 
              <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-lg mx-auto w-full space-y-8">
                  <div className="w-full text-center">
-                     <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Question {drillIndex + 1}/{selectedLesson.drills.length}</span>
+                     <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Question {drillIndex + 1}/{totalDrills}</span>
                      {/* Drill Render */}
                      <div className="mt-4">
-                        <DrillRenderer 
-                           drill={currentDrill} 
-                           onAnswer={setUserAnswer} 
-                           value={userAnswer}
-                        />
+                        {currentDrill ? (
+                           <DrillRenderer 
+                             drill={currentDrill} 
+                             onAnswer={setUserAnswer} 
+                             value={userAnswer}
+                           />
+                        ) : (
+                           <div className="text-slate-400">Loading drill...</div>
+                        )}
                      </div>
                  </div>
 
@@ -868,22 +864,30 @@ const DashboardView: React.FC<{
             <MissionTracker user={user} lang={lang} />
             
             <div className="grid grid-cols-1 gap-4">
-                 <button onClick={() => onNavigate(AppView.GRAMMAR_PRACTICE)} className="p-6 bg-white rounded-xl shadow border border-slate-200 text-left hover:border-indigo-400 transition-all flex justify-between items-center">
+                 <button onClick={() => onNavigate(AppView.GRAMMAR_PRACTICE)} className="p-6 bg-white rounded-xl shadow border border-slate-200 text-left hover:border-indigo-400 transition-all flex justify-between items-center group">
                     <div>
                         <h3 className="font-bold text-lg text-indigo-600 mb-1">Grammar Guru</h3>
                         <p className="text-sm text-slate-500">Master grammar rules with purpose</p>
                     </div>
-                    <span className="text-2xl">📚</span>
+                    <span className="text-2xl group-hover:scale-110 transition-transform">📚</span>
                  </button>
                  
-                 <button onClick={() => onNavigate(AppView.PLACEMENT_TEST)} className="p-6 bg-white rounded-xl shadow border border-slate-200 text-left hover:border-blue-400 transition-all flex justify-between items-center">
+                 <button onClick={() => onNavigate(AppView.PLACEMENT_TEST)} className="p-6 bg-white rounded-xl shadow border border-slate-200 text-left hover:border-blue-400 transition-all flex justify-between items-center group">
                     <div>
                         <h3 className="font-bold text-lg text-blue-600 mb-1">Placement Test</h3>
                         <p className="text-sm text-slate-500">Re-check your level</p>
                     </div>
-                    <span className="text-2xl">🎯</span>
+                    <span className="text-2xl group-hover:scale-110 transition-transform">🎯</span>
                  </button>
             </div>
+
+            {/* Added View Progress Button */}
+            <button 
+                onClick={() => onNavigate(AppView.GRAMMAR_STATS)}
+                className="w-full p-4 rounded-xl bg-slate-100 text-slate-600 font-bold border border-slate-200 hover:bg-slate-200 transition-all flex justify-center items-center gap-2"
+            >
+                <span>📊</span> Grammar Progress / Tiến độ Ngữ pháp
+            </button>
             
             <div className="pt-6 text-center text-xs text-slate-400">
                 FluentFlow AI v{APP_VERSION}
@@ -992,6 +996,13 @@ const App: React.FC = () => {
             onBack={() => setView(AppView.DASHBOARD)}
             onGoToPlacement={() => setView(AppView.PLACEMENT_TEST)}
             onUpdateUser={handleUpdateUser}
+            onViewStats={() => setView(AppView.GRAMMAR_STATS)}
+         />}
+
+         {view === AppView.GRAMMAR_STATS && user && <GrammarProgressView 
+            user={user}
+            onBack={() => setView(AppView.DASHBOARD)}
+            onContinue={() => setView(AppView.GRAMMAR_PRACTICE)}
          />}
       </>
   );

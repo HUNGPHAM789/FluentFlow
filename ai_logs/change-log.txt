@@ -1,36 +1,114 @@
-=== LOG ENTRY: 2025-11-29 15:35 ===
+
+
+
+=== LOG ENTRY: 2024-05-22 10:05:00 ===
 ACTION TYPE: ui_update
-LOG_TAG: grammar-drills
+LOG_TAG: grammar-ui
 FILES AFFECTED:
-- components/Drills/MultipleChoice.tsx
-- components/Drills/FillBlank.tsx
-- components/Drills/DragDrop.tsx
-- components/Drills/ReorderSentence.tsx
-- components/Drills/DrillRenderer.tsx
-- types.ts
-- data/grammarData.ts
 - App.tsx
 DESCRIPTION:
-Added interactive drill components (MultipleChoice, FillBlank, DragDrop, ReorderSentence).
-Updated GrammarGuruView to use DrillRenderer with a "Check Answer" flow.
-Updated Pre-A0 grammar data to use these new drill types.
+Added missing DashboardView and App component to fix 'no default export' error and complete navigation flow.
 CODE DIFF:
-+ <DrillRenderer drill={currentDrill} onAnswer={setUserAnswer} value={userAnswer} />
-+ const checkAnswer = () => { ... handles string/array comparison ... }
++ const DashboardView = ...
++ const App = ...
++ export default App;
 ===========================================
-=== LOG ENTRY: 2025-11-29 16:00 ===
+=== LOG ENTRY: 2025-11-29 16:35 ===
 ACTION TYPE: feature_update
-LOG_TAG: grammar-scoring
+LOG_TAG: grammar-progress
 FILES AFFECTED:
 - types.ts
-- utils/storage.ts
+- utils/grammarStats.ts
+- components/GrammarProgressView.tsx
 - App.tsx
 DESCRIPTION:
-Implemented drill scoring system for Grammar Guru.
-Added auto-lesson-completion detection.
-Implemented auto-upgrade from Pre-A0 to A0 upon mastering all Pre-A0 lessons.
+Implemented "Grammar Progress" screen to track learning stats by level.
+Created `calculateGrammarStats` utility to compute percentages from stored drills.
+Integrated new view into navigation (from Dashboard and Grammar Guru).
 CODE DIFF:
-+ type GrammarProgressRecord = { state, completedDrills, totalDrills, lastScore }
-+ function finalizeLesson(...) { ... updateLessonProgress ... maybeUpgradePreA0ToA0 ... }
-+ function evaluateDrillAnswer(...) { ... normalized comparison ... }
++ export const calculateGrammarStats = ...
++ <GrammarProgressView ... />
++ <button onClick={() => setView(AppView.GRAMMAR_STATS)}>Stats</button>
+===========================================
+=== LOG ENTRY: 2025-11-29 17:05 ===
+ACTION TYPE: ui_update
+LOG_TAG: grammar-ui
+FILES AFFECTED:
+- App.tsx
+- components/GrammarProgressView.tsx
+DESCRIPTION:
+Updated Grammar Progress screen to use bilingual headers (EN/VI).
+Renamed navigation buttons from "Stats" to "Grammar Progress / Tiến độ Ngữ pháp".
+Added dynamic bilingual encouragement messages based on level percentage.
+CODE DIFF:
+- <button>Stats</button>
++ <button>Grammar Progress / Tiến độ Ngữ pháp</button>
+- <h2>Grammar Progress</h2>
++ <h2>Grammar Progress / Tiến độ Ngữ pháp</h2>
+===========================================
+=== LOG ENTRY: 2025-05-23 11:00:00 ===
+ACTION TYPE: file_create
+LOG_TAG: grammar-progress
+FILES AFFECTED:
+- src/engine/coreLearningEngine.ts
+- src/hooks/useLearningSession.ts
+DESCRIPTION:
+Created initial Core Learning Engine skeleton and hook wrapper with placeholder logic, no behavior changes yet.
+CODE DIFF:
++ export class CoreLearningEngine { ... }
++ export const useLearningSession = ...
+===========================================
+=== LOG ENTRY: 2025-05-23 11:25 ===
+ACTION TYPE: logic_update
+LOG_TAG: grammar-progress
+FILES AFFECTED:
+- src/engine/coreLearningEngine.ts
+- src/hooks/useLearningSession.ts
+DESCRIPTION:
+Implemented real Grammar support in CoreLearningEngine (startGrammarSession, getCurrentItem, submitAnswer) with in-memory session logic only; no UI or storage wiring yet.
+CODE DIFF:
++ private static startGrammarSession(lessonId: string): LearningSession { ... }
++ private static evaluateGrammarAnswer(drill, userAnswer): boolean { ... }
++ static submitAnswer(session, answer): LearningResult { ... }
+===========================================
+=== LOG ENTRY: 2025-05-23 11:45 ===
+ACTION TYPE: refactor
+LOG_TAG: grammar-progress
+FILES AFFECTED:
+src/hooks/useLearningSession.ts
+App.tsx
+DESCRIPTION:
+Refactored GrammarGuruView to use CoreLearningEngine via useLearningSession for grammar sessions.
+Removed local drillIndex and drillResults state from GrammarGuruView.
+handleCheckAnswer now delegates to engine.submit().
+finalizeLesson now accepts explicit correct/total counts from engine stats.
+UI flow (alerts, progress bar, completion screen) preserved.
+CODE DIFF:
+const [drillIndex, setDrillIndex] = useState(0);
+const { session, currentItem, start, submit } = useLearningSession({ type: 'GRAMMAR', lessonId: selectedLesson?.id });
+const isCorrect = evaluateDrillAnswer(currentDrill, userAnswer);
+const { result, isComplete, stats } = submit(userAnswer);
+===========================================
+=== LOG ENTRY: 2025-05-23 12:05 ===
+ACTION TYPE: logic_update
+LOG_TAG: grammar-progress
+FILES AFFECTED:
+types.ts
+utils/storage.ts
+src/engine/coreLearningEngine.ts
+src/hooks/useLearningSession.ts
+App.tsx
+DESCRIPTION:
+Connected CoreLearningEngine grammar sessions to user XP and streak in storage.
+Added lastActive to UserProfile type.
+Added addUserXp and updateStreakOnActivity to storage utils.
+Added commitSession to CoreLearningEngine to trigger these updates using session stats.
+Exposed commit in useLearningSession hook.
+Called commit() in GrammarGuruView.finalizeLesson to sync XP/streak and update local user state.
+CODE DIFF:
+export interface UserProfile { ... lastActive?: string; }
+export const addUserXp = (amount: number) => { ... }
+export const updateStreakOnActivity = () => { ... }
+static commitSession(session): UserProfile | null { ... }
+const updatedUser = commit(); if (updatedUser) onUpdateUser(updatedUser);
 ===========================================

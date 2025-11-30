@@ -1,4 +1,5 @@
 
+
 // --- utils/storage.ts ---
 import { UserProfile, GrammarProgress, GrammarLevel, GrammarLessonState, EnglishLevel, GrammarProgressRecord } from '../types';
 import { grammarLevels } from '../data/grammarData';
@@ -192,4 +193,55 @@ export const updateGrammarLessonProgress = (lessonId: string, isComplete: boolea
     updateLessonProgress(progress, lessonId, {
       state: isComplete ? 'mastered' : 'in_progress'
     });
+};
+
+/* -------------------------------------------------------------------------- */
+/*                           XP & STREAK HELPERS                              */
+/* -------------------------------------------------------------------------- */
+
+export const addUserXp = (amount: number): UserProfile | null => {
+  const user = loadUserProfile();
+  if (!user) return null;
+  
+  user.xp = (user.xp || 0) + amount;
+  saveUserProfile(user);
+  return user;
+};
+
+export const updateStreakOnActivity = (): UserProfile | null => {
+  const user = loadUserProfile();
+  if (!user) return null;
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); // Start of today
+  
+  // If never active, init
+  if (!user.lastActive) {
+      user.streak = 1;
+      user.lastActive = now.toISOString();
+      saveUserProfile(user);
+      return user;
+  }
+
+  const lastActiveDate = new Date(user.lastActive);
+  const lastActiveDay = new Date(lastActiveDate.getFullYear(), lastActiveDate.getMonth(), lastActiveDate.getDate()).getTime();
+
+  const oneDay = 24 * 60 * 60 * 1000;
+  const diff = today - lastActiveDay;
+
+  if (diff === 0) {
+      // Already active today, just update timestamp
+      user.lastActive = now.toISOString();
+  } else if (diff === oneDay) {
+      // Consecutive day
+      user.streak += 1;
+      user.lastActive = now.toISOString();
+  } else if (diff > oneDay) {
+      // Streak broken
+      user.streak = 1;
+      user.lastActive = now.toISOString();
+  }
+
+  saveUserProfile(user);
+  return user;
 };
