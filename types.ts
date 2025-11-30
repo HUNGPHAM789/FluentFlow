@@ -1,4 +1,5 @@
 
+
 // --- types.ts ---
 
 export enum AppView {
@@ -18,6 +19,8 @@ export enum AppView {
 }
 
 export enum EnglishLevel {
+  PRE_A0 = 'PRE_A0',
+  A0 = 'A0',
   A1 = 'A1',
   A2 = 'A2',
   B1 = 'B1',
@@ -202,6 +205,7 @@ export type QuizQuestion = {
   category: "Daily" | "Work" | "IELTS" | "TOEIC" | "Grammar" | "Vocabulary" | "Listening" | "Reading" | "Slang";
 };
 
+// Deprecated legacy structure - keeping for compatibility during migration if needed
 export type GrammarLesson = {
   id: string;
   title: string;
@@ -256,4 +260,68 @@ export type VocabRecallItem = {
   exampleEn: string;
   exampleVi: string;
   topic: string;
+};
+
+// --- GRAMMAR GURU NEW TYPES ---
+
+export type GrammarLevel = 'PreA0' | 'A0' | 'A1' | 'A2' | 'B1' | 'B2';
+
+export type GrammarLessonState = 'locked' | 'available' | 'in_progress' | 'mastered';
+
+export type GrammarProgressRecord = {
+  state: GrammarLessonState;
+  completedDrills: number;
+  totalDrills: number;
+  lastScore?: number;
+  lastUpdated?: string;
+};
+
+export type GrammarProgress = {
+  [lessonId: string]: GrammarProgressRecord;
+};
+
+export interface GrammarDrillItem {
+    id: string;
+    type?: 'multiple_choice' | 'fill_blank' | 'drag_drop' | 'reorder';
+    question: string;
+    explanation?: string;
+    
+    // Multiple Choice & Generic
+    options?: string[];
+    answer: string | string[]; 
+
+    // Reorder
+    items?: string[];
+    
+    // DragDrop
+    pairs?: { left: string; right: string }[];
+    sentence?: string;
+    choices?: string[];
+}
+
+export type GrammarPurposeLesson = {
+  id: string; 
+  level: GrammarLevel;
+
+  purposeTitleVi: string;
+  purposeTitleEn: string;
+
+  shortDescriptionVi: string;
+  shortDescriptionEn?: string;
+
+  sampleSentenceVi: string;
+  sampleSentenceEn: string;
+
+  explanationEn: string;
+  explanationVi: string;
+  
+  drills: GrammarDrillItem[];
+};
+
+export type GrammarLevelGroup = {
+  level: GrammarLevel;
+  titleVi: string;
+  titleEn: string;
+  descriptionVi: string;
+  lessons: GrammarPurposeLesson[];
 };

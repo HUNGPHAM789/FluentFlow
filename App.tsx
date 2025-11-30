@@ -1,7 +1,19 @@
 // --- App.tsx ---
+// === LOG ENTRY: 2024-05-22 10:05:00 ===
+// ACTION TYPE: ui_update
+// LOG_TAG: grammar-ui
+// FILES AFFECTED:
+// - App.tsx
+// DESCRIPTION:
+// Added missing DashboardView and App component to fix 'no default export' error and complete navigation flow.
+// CODE DIFF:
+// + const DashboardView = ...
+// + const App = ...
+// + export default App;
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import MarkdownRenderer from './components/MarkdownRenderer'; 
-import { AppView, UserProfile, EnglishLevel, VocabWord, PlacementQuestion, VocabDrillContent, SpeakingFeedback, NewVocabCard, GrammarQuestion, AppLanguage, SpeakingScenarioData, Quote, BadgeDefinition, LEARNING_TOPICS } from './types';
+import { AppView, UserProfile, EnglishLevel, VocabWord, PlacementQuestion, VocabDrillContent, SpeakingFeedback, NewVocabCard, GrammarQuestion, AppLanguage, SpeakingScenarioData, Quote, BadgeDefinition, LEARNING_TOPICS, GrammarLevel, GrammarPurposeLesson, GrammarLessonState, GrammarDrillItem, GrammarProgress } from './types';
 import { evaluateSpeaking, askGenericAI } from './services/gemini';
 import { generatePlacementTest, determineLevel, generateVocabDrill, generateNewVocab, generateSpeakingSentence } from './services/content';
 import Button from './components/Button';
@@ -10,10 +22,14 @@ import { translations } from './utils/translations';
 import { englishQuotes } from './data/englishQuotes';
 import { BADGE_DEFINITIONS } from './data/badges';
 import { vocabData } from './data/vocabData';
-import { STORAGE_KEYS, clearAppStorage, loadUserProfile, saveUserProfile, getStoredVersion, setStoredVersion, loadVocabProgress, saveVocabProgress } from './utils/storage';
+import { grammarLevels } from './data/grammarData';
+import { grammarRecallData } from './data/grammarRecallData';
+import { STORAGE_KEYS, clearAppStorage, loadUserProfile, saveUserProfile, getStoredVersion, setStoredVersion, loadVocabProgress, saveVocabProgress, loadGrammarProgress, saveGrammarProgress, isLevelUnlocked, updateGrammarLessonProgress, isPreA0Completed, updateLessonProgress } from './utils/storage';
+import { getEffectiveLevel } from './utils/levelUtils';
+import { DrillRenderer } from './components/Drills';
 
 // Increment this version to force a data reset for all users
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5';
 
 /* -------------------------------------------------------------------------- */
 /*                            SHARED COMPONENTS                               */
@@ -232,18 +248,14 @@ const LoginView: React.FC<{
   onLogin: (provider: 'google' | 'apple', lang: AppLanguage) => void;
   onSkip: (lang: AppLanguage) => void;
 }> = ({ onLogin, onSkip }) => {
-  const [lang, setLang] = useState<AppLanguage>('en');
-  const t = translations[lang] || translations.en;
+  // VIETNAMESE FIRST: Default to 'vi' and removed language selector here
+  const lang: AppLanguage = 'vi';
+  const t = translations[lang];
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-600 to-indigo-800 p-6 relative overflow-hidden">
       <div className="absolute inset-0 z-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
       
-      {/* Language Selector */}
-      <div className="absolute top-6 right-6 z-20">
-         <LanguageSelector currentLang={lang} onChange={setLang} />
-      </div>
-
       <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md z-10 fade-in text-center space-y-8">
         <div className="space-y-2">
           <div className="h-16 w-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-3xl mb-4 shadow-lg shadow-blue-200">
@@ -289,58 +301,60 @@ const LoginView: React.FC<{
 };
 
 /* -------------------------------------------------------------------------- */
-/*                                LANDING VIEW                                */
+/*                     WELCOME LEVEL CHOICE VIEW (NEW)                        */
 /* -------------------------------------------------------------------------- */
 
-const LandingView: React.FC<{ 
-  onStart: () => void;
-  onSkip: () => void; 
-}> = ({ onStart, onSkip }) => (
-  <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-900 via-indigo-900 to-slate-900 text-white p-6 relative overflow-hidden">
-    <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
-    <div className="z-10 text-center max-w-lg space-y-8 fade-in">
-      <div className="space-y-2">
-        <h1 className="text-5xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-blue-400">
-          FluentFlow AI
-        </h1>
-        <p className="text-indigo-200 text-lg">Master English with adaptive AI shadowing and real-time feedback.</p>
-      </div>
-      
-      <div className="grid grid-cols-2 gap-4 text-left bg-white/10 p-6 rounded-2xl backdrop-blur-sm border border-white/10">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">🎯</span>
-          <span className="text-sm font-medium">Placement Test</span>
+const WelcomeLevelChoiceView: React.FC<{ 
+  onPreA0: () => void;
+  onStandard: () => void; 
+}> = ({ onPreA0, onStandard }) => {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-900 via-indigo-900 to-slate-900 text-white p-6 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+      <div className="z-10 text-center max-w-lg space-y-8 fade-in w-full">
+        <div className="space-y-2">
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white mb-2">
+            Chào mừng bạn đến với<br/>
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">FluentFlow AI</span>
+          </h1>
+          <p className="text-indigo-200 text-lg">Chọn tình trạng tiếng Anh của bạn:</p>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">🗣️</span>
-          <span className="text-sm font-medium">Shadowing</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">🧠</span>
-          <span className="text-sm font-medium">Interactive Drills</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">🏆</span>
-          <span className="text-sm font-medium">Titles & Badges</span>
-        </div>
-      </div>
+        
+        <div className="space-y-4 pt-4">
+           {/* Option 1: True Beginner */}
+           <button 
+              onClick={onPreA0}
+              className="w-full p-6 text-left border-2 rounded-2xl bg-amber-50 border-amber-400 hover:bg-amber-100 transition-all group shadow-lg shadow-amber-900/50"
+           >
+              <div className="text-xl font-bold text-amber-900 mb-2 group-hover:underline">TÔI KHÔNG BIẾT TIẾNG ANH</div>
+              <div className="text-base font-normal text-amber-800/90 leading-relaxed">
+                Tôi gần như mới bắt đầu từ con số 0. App sẽ cho tôi học khóa nền tảng Pre-A0 với giải thích tiếng Việt.
+              </div>
+           </button>
 
-      <div className="space-y-4">
-        <Button onClick={onStart} className="w-full text-lg py-4 shadow-indigo-500/50">
-          Start Placement Test
-        </Button>
-        <button 
-          onClick={onSkip}
-          className="text-indigo-200 hover:text-white text-sm font-medium hover:underline transition-all opacity-80"
-        >
-          I know my level (Skip to Dashboard)
-        </button>
+           <div className="relative flex py-2 items-center text-white/50">
+               <div className="flex-grow border-t border-white/20"></div>
+               <span className="flex-shrink-0 mx-4 text-xs uppercase">Hoặc</span>
+               <div className="flex-grow border-t border-white/20"></div>
+           </div>
+
+           {/* Option 2: Standard Flow */}
+           <button 
+              onClick={onStandard}
+              className="w-full p-4 text-left border border-white/20 rounded-xl bg-white/10 hover:bg-white/20 transition-all text-white"
+           >
+              <div className="font-bold text-lg mb-1">Tôi đã từng học tiếng Anh</div>
+              <div className="text-sm text-indigo-200">
+                 Hiểu được vài câu đơn giản. Tiếp tục đến kiểm tra xếp lớp hoặc chọn bài học phù hợp.
+              </div>
+           </button>
+        </div>
+        
+        <p className="text-xs text-indigo-300 opacity-60">Bạn có thể thay đổi cài đặt ngôn ngữ sau trong Bảng điều khiển.</p>
       </div>
-      
-      <p className="text-xs text-indigo-300 opacity-60">Takes about 5 minutes • Determines your level (A1-C1)</p>
     </div>
-  </div>
-);
+  );
+};
 
 /* -------------------------------------------------------------------------- */
 /*                             PLACEMENT TEST VIEW                            */
@@ -349,8 +363,7 @@ const LandingView: React.FC<{
 const PlacementTestView: React.FC<{ 
   onComplete: (level: EnglishLevel) => void;
   lang: AppLanguage;
-  onLangChange: (l: AppLanguage) => void; 
-}> = ({ onComplete, lang, onLangChange }) => {
+}> = ({ onComplete, lang }) => {
   const [questions, setQuestions] = useState<PlacementQuestion[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [score, setScore] = useState(0);
@@ -398,10 +411,9 @@ const PlacementTestView: React.FC<{
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 flex flex-col items-center justify-center p-6 relative">
-      <div className="absolute top-6 right-6 z-20">
-         <LanguageSelector currentLang={lang} onChange={onLangChange} />
-      </div>
+      {/* NO LANGUAGE SELECTOR HERE */}
       <div className="max-w-xl w-full bg-white rounded-3xl shadow-xl p-8 space-y-8 fade-in">
+        
         <div className="flex justify-between items-center border-b pb-4">
           <span className="text-xs font-bold uppercase tracking-wider text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full">
             {q.category}
@@ -434,1274 +446,555 @@ const PlacementTestView: React.FC<{
 };
 
 /* -------------------------------------------------------------------------- */
-/*                              DASHBOARD VIEW                                */
+/*                           GRAMMAR GURU VIEW                                */
 /* -------------------------------------------------------------------------- */
 
-const TopicSelectionModal: React.FC<{ 
-  isOpen: boolean; 
-  onClose: () => void; 
-  onSelect: (topic: string, level: string) => void; 
-  title: string;
-  userVocab: VocabWord[];
-}> = ({ isOpen, onClose, onSelect, title, userVocab }) => {
-  if (!isOpen) return null;
-
-  const isCompleted = (topic: string) => {
-    // Count how many words in this topic the user has learned
-    const userCount = userVocab.filter(v => {
-        // Find the topic of this word from the vocabData
-        const source = vocabData.find(r => r.word === v.word);
-        return source?.topic === topic;
-    }).length;
-    
-    // Count total available words in this topic
-    const totalCount = vocabData.filter(v => v.topic === topic).length;
-    
-    return totalCount > 0 && userCount >= totalCount;
-  };
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
-      <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative max-h-[90vh] overflow-y-auto">
-        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
-        <h3 className="text-xl font-bold text-slate-800 mb-6 text-center">{title}</h3>
-        
-        <div className="grid grid-cols-2 gap-3">
-          {LEARNING_TOPICS.map((t) => {
-            const completed = isCompleted(t);
-            return (
-                <button 
-                  key={t}
-                  onClick={() => onSelect(t, "B1")} // Defaulting level as it's adaptive
-                  disabled={completed}
-                  className={`p-3 rounded-xl border transition-all font-medium text-left flex flex-col justify-between h-24
-                    ${completed 
-                        ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed' 
-                        : 'bg-white border-slate-200 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600 text-slate-600'
-                    }`}
-                >
-                  <span>{t}</span>
-                  {completed && <span className="text-xs font-bold text-green-500 uppercase">Completed ✓</span>}
-                </button>
-            );
-          })}
-          <button 
-            onClick={() => onSelect("Random", "B1")}
-            className="p-3 rounded-xl border border-dashed border-indigo-200 bg-indigo-50/50 text-indigo-600 hover:bg-indigo-100 transition-all font-medium text-left col-span-2 text-center h-24 flex items-center justify-center"
-          >
-             🎲 Surprise Me (Random)
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Quote Card Component (Antique Style)
-const QuoteCard: React.FC = () => {
-  const [quote, setQuote] = useState<Quote | null>(null);
-
-  useEffect(() => {
-    const ONE_MINUTE = 60 * 1000;
-    const TEN_MINUTES = 10 * ONE_MINUTE;
-
-    const storedQuote = localStorage.getItem(STORAGE_KEYS.QUOTE);
-    const storedTime = localStorage.getItem(STORAGE_KEYS.QUOTE_TIME);
-    const now = Date.now();
-
-    if (storedQuote && storedTime && (now - parseInt(storedTime)) < TEN_MINUTES) {
-      setQuote(JSON.parse(storedQuote));
-    } else {
-      const randomQuote = englishQuotes[Math.floor(Math.random() * englishQuotes.length)];
-      setQuote(randomQuote);
-      localStorage.setItem(STORAGE_KEYS.QUOTE, JSON.stringify(randomQuote));
-      localStorage.setItem(STORAGE_KEYS.QUOTE_TIME, now.toString());
-    }
-  }, []);
-
-  if (!quote) return null;
-
-  return (
-    <div className="w-full bg-[#f4e4bc] rounded-xl shadow-lg border-2 border-[#d4c5a3] p-6 text-[#432d1e] relative overflow-hidden group shine font-serif">
-      <div className="absolute top-0 right-0 p-4 opacity-10 text-8xl font-serif leading-none select-none pointer-events-none">"</div>
-      
-      <div className="relative z-10 flex flex-col items-center text-center space-y-5">
-        <span className="text-[10px] font-bold tracking-[0.2em] uppercase border-b border-[#432d1e]/30 pb-1">
-          {quote.category}
-        </span>
-        
-        <div>
-          <p className="text-2xl font-medium leading-relaxed drop-shadow-sm font-serif italic">"{quote.text}"</p>
-          <p className="text-sm opacity-80 mt-3 font-light italic">
-            {quote.translation}
-          </p>
-        </div>
-
-        <div className="text-xs font-bold uppercase tracking-wide opacity-70">
-          — {quote.author}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Badge List Modal
-const BadgeModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  user: UserProfile;
-  lang: AppLanguage;
-}> = ({ isOpen, onClose, user, lang }) => {
-  if (!isOpen) return null;
-
-  // Filter next 10 unearned badges
-  const unearnedBadges = BADGE_DEFINITIONS.filter(b => !user.badges.includes(b.id)).slice(0, 10);
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
-      <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl relative max-h-[90vh] overflow-y-auto">
-        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
-        <div className="text-center mb-6">
-          <h3 className="text-xl font-bold text-slate-800">Your Next Quest</h3>
-          <p className="text-slate-500 text-sm">Earn these badges to level up!</p>
-        </div>
-
-        <div className="space-y-3">
-          {unearnedBadges.map(badge => {
-            let currentVal = 0;
-            switch(badge.type) {
-              case 'words': currentVal = user.learningStats?.wordsLearned || 0; break;
-              case 'sentences': currentVal = user.learningStats?.sentencesSpoken || 0; break;
-              case 'grammar': currentVal = user.learningStats?.grammarPoints || 0; break;
-              case 'streak': currentVal = user.streak; break;
-            }
-            const progress = Math.min(100, Math.round((currentVal / badge.threshold) * 100));
-
-            return (
-              <div key={badge.id} className="flex items-center gap-4 p-3 rounded-xl border border-slate-200 bg-slate-50 opacity-75 hover:opacity-100 transition-opacity">
-                <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-2xl grayscale">
-                  {badge.icon}
-                </div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-slate-700">{lang === 'vi' ? badge.name.vi : badge.name.en}</span>
-                    <span className="text-xs font-mono text-slate-500">{currentVal}/{badge.threshold}</span>
-                  </div>
-                  <div className="text-xs text-slate-500 mb-1">{lang === 'vi' ? badge.description.vi : badge.description.en}</div>
-                  <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                    <div className="h-full bg-slate-400 transition-all duration-500" style={{ width: `${progress}%` }}></div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-4 text-center">
-            <Button onClick={onClose} variant="secondary">Keep Learning</Button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-const DashboardView: React.FC<{ 
-  user: UserProfile; 
-  onNavigate: (view: AppView, params?: any) => void;
-  onLanguageChange: (lang: AppLanguage) => void;
-}> = ({ user, onNavigate, onLanguageChange }) => {
-  const [modalType, setModalType] = useState<'vocab' | 'grammar' | null>(null);
-  const [showBadgeModal, setShowBadgeModal] = useState(false);
-  const t = translations[user.language || 'en'] || translations.en;
-  const lang = user.language || 'en';
-
-  const handleTopicSelect = (topic: string, level: string) => {
-    if (modalType === 'vocab') {
-      onNavigate(AppView.NEW_VOCAB, { topic, level });
-    } else if (modalType === 'grammar') {
-      onNavigate(AppView.GRAMMAR_PRACTICE, { topic });
-    }
-    setModalType(null);
-  };
-
-  // Get Highest Earned Badge (Latest Title)
-  const latestBadge = useMemo(() => {
-    // Find all badges user has earned
-    const earned = BADGE_DEFINITIONS.filter(b => user.badges.includes(b.id));
-    // Sort by threshold (approx difficulty)
-    earned.sort((a, b) => b.threshold - a.threshold);
-    // Return highest or default
-    return earned.length > 0 ? earned[0] : { 
-        name: { en: "Novice Wanderer", vi: "Lữ Khách Mới" }, 
-        description: { en: "Your journey begins.", vi: "Hành trình bắt đầu." }, // Add default description
-        icon: "🎒",
-        type: 'words', // Default type
-        threshold: 0,
-        id: 'novice'
-    };
-  }, [user.badges]);
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 p-6 pb-24 relative">
-      <TopicSelectionModal 
-        isOpen={!!modalType} 
-        onClose={() => setModalType(null)} 
-        onSelect={handleTopicSelect} 
-        title={modalType === 'vocab' ? t.discoverTitle : t.grammarTitle}
-        userVocab={user.vocabList}
-      />
-
-      <BadgeModal 
-        isOpen={showBadgeModal} 
-        onClose={() => setShowBadgeModal(false)} 
-        user={user}
-        lang={lang}
-      />
-
-       {/* Language Selector (Persistent) */}
-       <div className="absolute top-6 right-6 z-20">
-         <LanguageSelector currentLang={user.language || 'en'} onChange={onLanguageChange} />
-      </div>
-
-      <div className="max-w-4xl mx-auto space-y-6 fade-in pt-8">
-        
-        {/* Header */}
-        <header>
-            <h1 className="text-3xl font-bold text-slate-900">{t.welcome}, {user.name}</h1>
-            <div className="flex items-center gap-2 mt-2">
-              {/* Clickable RPG Title */}
-              <button 
-                onClick={() => setShowBadgeModal(true)}
-                className="flex items-center gap-2 bg-gradient-to-r from-yellow-100 to-amber-100 border border-amber-200 px-3 py-1 rounded-full shadow-sm hover:shadow-md hover:scale-105 transition-all cursor-pointer"
-              >
-                 <span className="text-lg">{latestBadge.icon}</span>
-                 <span className="text-sm font-bold text-amber-800">
-                    {lang === 'vi' ? latestBadge.name.vi : latestBadge.name.en}
-                 </span>
-                 <span className="text-[10px] text-amber-600 ml-1">ℹ️</span>
-              </button>
-              
-              <span className="text-sm bg-white text-slate-600 px-2 py-0.5 rounded-md font-medium border border-slate-200">
-                Lvl: {user.level}
-              </span>
-            </div>
-        </header>
-
-        {/* Stats & Quote Section */}
-        <div className="space-y-4 animate-[fadeIn_0.4s_ease-out]">
-           {/* Quick Stats Grid */}
-           <div className="grid grid-cols-4 gap-2 md:gap-4">
-              <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
-                <div className="text-xl mb-1">🔥</div>
-                <div className="font-bold text-slate-800 text-sm">{user.streak}</div>
-                <div className="text-[10px] text-slate-400 uppercase font-bold text-center">{t.streak}</div>
-              </div>
-              <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
-                <div className="text-xl mb-1">🏅</div>
-                <div className="font-bold text-slate-800 text-sm">{user.badges.length}</div>
-                <div className="text-[10px] text-slate-400 uppercase font-bold text-center">{t.badges}</div>
-              </div>
-              <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
-                 <div className="text-xl mb-1">📝</div>
-                 <div className="font-bold text-slate-800 text-sm">{user.learningStats?.wordsLearned || 0}</div>
-                 <div className="text-[10px] text-slate-400 uppercase font-bold text-center">{t.wordsMastered}</div>
-              </div>
-              <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
-                 <div className="text-xl mb-1">🗣️</div>
-                 <div className="font-bold text-slate-800 text-sm">{user.learningStats?.sentencesSpoken || 0}</div>
-                 <div className="text-[10px] text-slate-400 uppercase font-bold text-center">Spoken</div>
-              </div>
-            </div>
-
-            {/* Mission Tracker */}
-            <MissionTracker user={user} lang={lang} />
-
-            {/* Antique Random Quote Card */}
-            <QuoteCard />
-        </div>
-
-        {/* Action Buttons (Fade In) */}
-        <div className="space-y-4 pt-2">
-          <div className="flex items-center gap-4">
-             <h3 className="font-semibold text-slate-800 text-lg animate-[fadeIn_0.5s_ease-out]">{t.whatToLearn}</h3>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-6">
-            
-            {/* 1. Discover Words */}
-            <button 
-              onClick={() => setModalType('vocab')}
-              className="group relative overflow-hidden bg-gradient-to-br from-pink-500 to-rose-600 rounded-3xl p-6 text-white text-left shadow-lg shadow-pink-200 transition-all hover:scale-[1.02] hover:shadow-pink-300 animate-[fadeIn_0.6s_ease-out_fill-mode-backwards]"
-            >
-              <div className="absolute top-0 right-0 p-4 opacity-20 text-6xl rotate-12">🔭</div>
-              <h4 className="text-xl font-bold mb-2">{t.discoverTitle}</h4>
-              <p className="text-pink-100 text-sm mb-4">{t.discoverDesc}</p>
-              <span className="inline-block bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md">{t.explore} &rarr;</span>
-            </button>
-
-             {/* 2. Vocab Recall */}
-             <button 
-              onClick={() => onNavigate(AppView.VOCAB_DRILL)}
-              className="group relative overflow-hidden bg-gradient-to-br from-emerald-500 to-teal-600 rounded-3xl p-6 text-white text-left shadow-lg shadow-emerald-200 transition-all hover:scale-[1.02] hover:shadow-emerald-300 animate-[fadeIn_0.65s_ease-out_fill-mode-backwards]"
-            >
-              <div className="absolute top-0 right-0 p-4 opacity-20 text-6xl rotate-12">🧠</div>
-              <h4 className="text-xl font-bold mb-2">{t.vocabRecallTitle}</h4>
-              <p className="text-emerald-100 text-sm mb-4">{t.vocabRecallDesc}</p>
-              <span className="inline-block bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md">{t.startDrill} &rarr;</span>
-            </button>
-
-            {/* 3. Grammar Guru */}
-            <button 
-              onClick={() => setModalType('grammar')}
-              className="group relative overflow-hidden bg-gradient-to-br from-blue-500 to-cyan-600 rounded-3xl p-6 text-white text-left shadow-lg shadow-blue-200 transition-all hover:scale-[1.02] hover:shadow-blue-300 animate-[fadeIn_0.7s_ease-out_fill-mode-backwards]"
-            >
-              <div className="absolute top-0 right-0 p-4 opacity-20 text-6xl rotate-12">⚖️</div>
-              <h4 className="text-xl font-bold mb-2">{t.grammarTitle}</h4>
-              <p className="text-blue-100 text-sm mb-4">{t.grammarDesc}</p>
-              <span className="inline-block bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md">{t.practice} &rarr;</span>
-            </button>
-
-            {/* 4. Grammar Review */}
-            <button 
-              onClick={() => onNavigate(AppView.GRAMMAR_REVIEW)}
-              className="group relative overflow-hidden bg-gradient-to-br from-orange-500 to-amber-600 rounded-3xl p-6 text-white text-left shadow-lg shadow-orange-200 transition-all hover:scale-[1.02] hover:shadow-orange-300 animate-[fadeIn_0.75s_ease-out_fill-mode-backwards]"
-            >
-              <div className="absolute top-0 right-0 p-4 opacity-20 text-6xl rotate-12">🧱</div>
-              <h4 className="text-xl font-bold mb-2">{t.grammarListTitle}</h4>
-              <p className="text-orange-100 text-sm mb-4">{t.grammarListDesc}</p>
-              <span className="inline-block bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md">{t.review} &rarr;</span>
-            </button>
-
-            {/* 5. Shadowing */}
-            <button 
-              onClick={() => onNavigate(AppView.SPEAKING_PRACTICE)}
-              className="group relative overflow-hidden bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl p-6 text-white text-left shadow-lg shadow-indigo-200 transition-all hover:scale-[1.02] hover:shadow-indigo-300 animate-[fadeIn_0.78s_ease-out_fill-mode-backwards]"
-            >
-              <div className="absolute top-0 right-0 p-4 opacity-20 text-6xl rotate-12">🎤</div>
-              <h4 className="text-xl font-bold mb-2">{t.shadowingTitle}</h4>
-              <p className="text-indigo-100 text-sm mb-4">{t.shadowingDesc}</p>
-              <span className="inline-block bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md">{t.startSession} &rarr;</span>
-            </button>
-            
-            {/* 6. AI Tutor & Writing */}
-            <button 
-              onClick={() => onNavigate(AppView.WRITING_ASSISTANT)}
-              className="group relative overflow-hidden bg-gradient-to-br from-purple-500 to-violet-600 rounded-3xl p-6 text-white text-left shadow-lg shadow-purple-200 transition-all hover:scale-[1.02] hover:shadow-purple-300 animate-[fadeIn_0.8s_ease-out_fill-mode-backwards]"
-            >
-              <div className="absolute top-0 right-0 p-4 opacity-20 text-6xl rotate-12">✍️</div>
-              <h4 className="text-xl font-bold mb-2">AI Tutor & Writing</h4>
-              <p className="text-purple-100 text-sm mb-4">Feedback, writing, & custom Q&A.</p>
-              <span className="inline-block bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-md">Start &rarr;</span>
-            </button>
-
-          </div>
-        </div>
-
-        <footer className="text-center text-slate-400 text-xs py-8">
-           FluentFlow AI v1.0 • Built with Gemini
-        </footer>
-      </div>
-    </div>
-  );
-};
-
-/* -------------------------------------------------------------------------- */
-/*                          NEW VOCAB VIEW                                    */
-/* -------------------------------------------------------------------------- */
-
-const NewVocabView: React.FC<{ 
-  topic: string; 
-  level: string;
-  lang: AppLanguage;
-  userVocab: VocabWord[];
-  onBack: () => void; 
-  onSave: (word: string) => void;
-  onLangChange: (l: AppLanguage) => void;
-}> = ({ topic, level, lang, userVocab, onBack, onSave, onLangChange }) => {
-  const [card, setCard] = useState<NewVocabCard | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isSaved, setIsSaved] = useState(false);
-  const [seenWords, setSeenWords] = useState<string[]>([]);
-  const t = translations[lang] || translations.en;
-
-  const fetchNewWord = async () => {
-    setLoading(true);
-    setIsSaved(false);
-    
-    // Combine saved words and session seen words to exclude them
-    const exclude = [...userVocab.map(v => v.word), ...seenWords];
-    
-    const data = await generateNewVocab(topic, level, lang, exclude);
-    
-    setCard(data);
-    if (data) {
-        setSeenWords(prev => [...prev, data.word]);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchNewWord();
-  }, [topic, level]);
-
-  const handleSave = () => {
-    if (card && !isSaved) {
-        onSave(card.word);
-        setIsSaved(true);
-    }
-  };
-
-  const playPronunciation = (text: string) => {
-    const u = new SpeechSynthesisUtterance(text);
-    window.speechSynthesis.speak(u);
-  };
-
-  // Particles for firework effect
-  const particles = useMemo(() => {
-     return Array.from({ length: 12 }).map((_, i) => {
-         const angle = (i / 12) * Math.PI * 2;
-         const distance = 40; // px
-         const tx = Math.cos(angle) * distance;
-         const ty = Math.sin(angle) * distance;
-         return { tx, ty, color: ['#60A5FA', '#34D399', '#F472B6', '#FBBF24'][i % 4] };
-     });
-  }, []);
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-slate-50 flex flex-col items-center justify-center p-6 relative">
-       <div className="absolute top-6 left-6 z-20">
-         <LanguageSelector currentLang={lang} onChange={onLangChange} />
-       </div>
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 space-y-6 fade-in relative min-h-[400px] flex flex-col justify-center">
-        <button onClick={onBack} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
-        <div className="absolute top-8 left-8 flex items-center gap-2">
-           <span className="text-xs font-bold uppercase tracking-wider text-pink-500 bg-pink-50 px-3 py-1 rounded-full">
-            {topic}
-          </span>
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
-            {level}
-          </span>
-        </div>
-
-        {loading ? (
-          <div className="py-20 flex justify-center"><div className="animate-spin text-4xl text-pink-400">🔭</div></div>
-        ) : !card ? (
-           <div className="text-center space-y-4">
-             <div className="text-6xl">🎉</div>
-             <h2 className="text-2xl font-bold text-slate-800">Topic Completed!</h2>
-             <p className="text-slate-600">You have explored all available words in this topic.</p>
-             <Button onClick={onBack} className="w-full">Choose Another Topic</Button>
-           </div>
-        ) : (
-          <>
-            <div className="text-center space-y-2 mt-8">
-              <h2 className="text-4xl font-bold text-slate-800">{card.word}</h2>
-              <div className="flex items-center justify-center gap-2 text-slate-500">
-                <span className="font-mono bg-slate-100 px-2 rounded text-sm">{card.pronunciation}</span>
-                <button onClick={() => playPronunciation(card.word)} className="p-1 hover:bg-slate-100 rounded-full">🔊</button>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <h3 className="font-semibold text-slate-900">{t.definition}</h3>
-                <p className="text-slate-600 leading-relaxed">{card.definition}</p>
-              </div>
-              <div>
-                <h3 className="font-semibold text-slate-900">{t.example}</h3>
-                 <div className="p-4 bg-slate-50 rounded-xl border-l-4 border-pink-400 italic text-slate-600 space-y-2">
-                  <p>"{card.example}"</p>
-                  <p className="text-sm text-slate-500">{card.exampleTranslation}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-4">
-              <div className="relative w-full">
-                <Button 
-                  onClick={handleSave} 
-                  variant={isSaved ? "primary" : "secondary"}
-                  disabled={isSaved}
-                  className={`w-full transition-all duration-300 relative overflow-visible ${isSaved ? 'bg-blue-600 text-white border-blue-600 animate-pop' : ''}`}
-                >
-                  {isSaved ? "Saved! ⭐" : t.save}
-                </Button>
-                {isSaved && particles.map((p, i) => (
-                    <span 
-                        key={i} 
-                        className="firework-particle" 
-                        style={{ 
-                          "--tx": `${p.tx}px`, 
-                          "--ty": `${p.ty}px`,
-                          "--color": p.color,
-                          backgroundColor: p.color
-                        } as React.CSSProperties}
-                    />
-                ))}
-              </div>
-              <Button onClick={fetchNewWord} className="bg-gradient-to-r from-pink-500 to-rose-500">{t.next} &rarr;</Button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
-
-/* -------------------------------------------------------------------------- */
-/*                          VOCAB DRILL VIEW                                  */
-/* -------------------------------------------------------------------------- */
-
-const VocabDrillView: React.FC<{
+const GrammarGuruView: React.FC<{
   user: UserProfile;
   onBack: () => void;
-  onComplete: (word: string, mastery: number) => void;
-  onLangChange: (l: AppLanguage) => void;
-}> = ({ user, onBack, onComplete, onLangChange }) => {
-  const [currentWord, setCurrentWord] = useState<VocabWord | null>(null);
-  const [content, setContent] = useState<VocabDrillContent | null>(null);
-  const [step, setStep] = useState<'INTRO' | 'QUIZ_MEANING' | 'QUIZ_TRANS' | 'QUIZ_SCRAMBLE' | 'SUCCESS'>('INTRO');
-  const [mistakes, setMistakes] = useState(0);
-  const [isAllMastered, setIsAllMastered] = useState(false);
-  const processedRef = useRef(false);
-  const [lastWordId, setLastWordId] = useState<string | null>(null);
-  const t = translations[user.language || 'en'] || translations.en;
+  onGoToPlacement: () => void;
+  onUpdateUser: (u: UserProfile) => void;
+}> = ({ user, onBack, onGoToPlacement, onUpdateUser }) => {
+  const [viewMode, setViewMode] = useState<'HOME' | 'DETAIL' | 'DRILL'>('HOME');
+  const [selectedLesson, setSelectedLesson] = useState<GrammarPurposeLesson | null>(null);
+  const [progress, setProgress] = useState(loadGrammarProgress());
+  const [showLockInfo, setShowLockInfo] = useState<{level: string, message: string} | null>(null);
   
-  // Interactive Quiz State
-  const [userSentence, setUserSentence] = useState<{id: string, word: string}[]>([]);
-  const [wordBank, setWordBank] = useState<{id: string, word: string}[]>([]);
-  const [quizStatus, setQuizStatus] = useState<'IDLE' | 'CORRECT' | 'WRONG'>('IDLE');
+  // Drill State
+  const [drillIndex, setDrillIndex] = useState(0);
+  const [userAnswer, setUserAnswer] = useState<any>(null);
+  const [drillResults, setDrillResults] = useState<boolean[]>([]);
+  const [lessonResult, setLessonResult] = useState<{correct: number, total: number, score: number} | null>(null);
 
-  // Explicitly derive active words (excluding mastered)
-  // ONE-TIME MASTERY: Mastery Level >= 1 is considered "Mastered"
-  const activeWords = useMemo(() => {
-    return user.vocabList.filter(v => (v.masteryLevel || 0) < 1);
-  }, [user.vocabList]);
+  const effectiveLevel = getEffectiveLevel(user.level);
 
-  // NEW: Local pool state (initialized from activeWords)
-  // This allows us to remove mastered words immediately from the session
-  const [pool, setPool] = useState<VocabWord[]>(activeWords);
-
-  const startDrill = async () => {
-    processedRef.current = false;
-    
-    // Safety check if pool list is empty
-    if (pool.length === 0) {
-       setIsAllMastered(true);
-       setCurrentWord(null);
-       setContent(null);
-       return;
-    }
-
-    setIsAllMastered(false);
-    
-    // Smart selection: Avoid same word twice in a row if possible
-    let candidates = pool;
-    if (candidates.length > 1 && lastWordId) {
-        candidates = candidates.filter(w => w.id !== lastWordId);
-    }
-    
-    // Fallback if candidates became empty (e.g. only 1 active word exists)
-    if (candidates.length === 0) candidates = pool;
-
-    const target = candidates[Math.floor(Math.random() * candidates.length)];
-
-    setCurrentWord(target);
-    setLastWordId(target.id);
-    setStep('INTRO');
-    setMistakes(0);
-    setQuizStatus('IDLE');
-    
-    const drillContent = await generateVocabDrill(target.word, user.language);
-    setContent(drillContent);
-  };
-
+  // Auto-refresh progress on mount
   useEffect(() => {
-    // Only start drill once on mount or if we have words and no current content
-    // Rely on pool.length instead of activeWords
-    if (pool.length > 0 && !currentWord) {
-      startDrill();
-    } else if (pool.length === 0 && user.vocabList.length > 0 && !currentWord) {
-      // If we have saved words but all are mastered (or pool depleted)
-      setIsAllMastered(true);
-    }
-  }, [pool.length]); 
+    setProgress(loadGrammarProgress());
+  }, []);
 
-  // Initialize interactive quiz data when step changes
-  useEffect(() => {
-    if (!content) return;
-    
-    setUserSentence([]);
-    setQuizStatus('IDLE');
-
-    if (step === 'QUIZ_TRANS') {
-       setWordBank(content.translationQuiz.scrambledEnglish.map((w, i) => ({ id: `t-${i}`, word: w })));
-    } else if (step === 'QUIZ_SCRAMBLE') {
-       setWordBank(content.scrambleSentence.scrambled.map((w, i) => ({ id: `s-${i}`, word: w })));
-    }
-  }, [step, content]);
-
-  // Auto-save progress when completing a word
-  useEffect(() => {
-     if (step === 'SUCCESS' && currentWord && !processedRef.current) {
-         processedRef.current = true;
-         // ONE-TIME MASTERY: If the user reached SUCCESS, they finished the drill.
-         // We simply mark it as mastered (1).
-         const newMastery = 1;
-         onComplete(currentWord.word, newMastery);
-
-         // NEW: Remove from local pool immediately
-         setPool(prev => prev.filter(w => w.id !== currentWord.id));
-     }
-  }, [step]);
-
-  const handleWordClick = (item: {id: string, word: string}, from: 'bank' | 'sentence') => {
-      if (quizStatus === 'CORRECT') return; 
-
-      if (from === 'bank') {
-          setWordBank(prev => prev.filter(w => w.id !== item.id));
-          setUserSentence(prev => [...prev, item]);
-          setQuizStatus('IDLE');
-      } else {
-          setUserSentence(prev => prev.filter(w => w.id !== item.id));
-          setWordBank(prev => [...prev, item]);
-          setQuizStatus('IDLE');
+  const handleLessonSelect = (lesson: GrammarPurposeLesson, isLocked: boolean) => {
+    if (isLocked) {
+      if (user.level === EnglishLevel.PRE_A0) {
+        setShowLockInfo({
+          level: lesson.level,
+          message: `Bạn đang học khóa nền tảng Pre-A0. Hoàn thành tất cả bài Pre-A0 để mở khóa cấp độ này.`
+        });
+        return;
       }
+      // Find the previous level
+      const currentIdx = ['PreA0', 'A0','A1','A2','B1','B2'].indexOf(lesson.level);
+      const prevLevel = ['PreA0', 'A0','A1','A2','B1','B2'][currentIdx - 1] || 'PreA0';
+      
+      setShowLockInfo({
+        level: lesson.level,
+        message: `Bài này thuộc cấp độ ${lesson.level}. Để học bài này, bạn cần hoàn thành tất cả các bài ở cấp độ trước (${prevLevel}).`
+      });
+      return;
+    }
+    setSelectedLesson(lesson);
+    setViewMode('DETAIL');
   };
 
-  const checkInteractiveSentence = (target: string) => {
-      const attempt = userSentence.map(w => w.word).join(' ');
-      const cleanAttempt = attempt.replace(/[.,!?]/g, '').toLowerCase().trim();
-      const cleanTarget = target.replace(/[.,!?]/g, '').toLowerCase().trim();
+  const startDrill = () => {
+    if (!selectedLesson) return;
+    setDrillIndex(0);
+    setDrillResults([]);
+    setLessonResult(null);
+    setUserAnswer(null); // Reset answer
+    setViewMode('DRILL');
+    
+    // Mark as in-progress if not mastered
+    if (progress[selectedLesson.id]?.state !== 'mastered') {
+        const updated = updateLessonProgress(progress, selectedLesson.id, { state: 'in_progress' });
+        setProgress(updated);
+    }
+  };
 
-      if (cleanAttempt === cleanTarget) {
-          setQuizStatus('CORRECT');
-      } else {
-          setQuizStatus('WRONG');
-          setMistakes(m => m + 1);
+  const normalizeText = (text: string): string => {
+    return String(text).trim().toLowerCase().replace(/\s+/g, ' ');
+  };
+
+  const evaluateDrillAnswer = (drill: GrammarDrillItem, answer: any): boolean => {
+    if (!drill) return false;
+
+    if (drill.type === 'reorder') {
+        const expectedArray = Array.isArray(drill.answer) ? drill.answer : [drill.answer];
+        const userArray = Array.isArray(answer) ? answer : [answer];
+        return normalizeText(expectedArray.join(' ')) === normalizeText(userArray.join(' '));
+    }
+
+    // String based comparison for multiple choice, fill blank, drag drop
+    const expected = Array.isArray(drill.answer) ? drill.answer[0] : drill.answer;
+    const userVal = Array.isArray(answer) ? answer[0] : answer;
+    
+    return normalizeText(String(expected)) === normalizeText(String(userVal));
+  };
+
+  const maybeUpgradePreA0ToA0 = (currentUser: UserProfile, currentProgress: GrammarProgress) => {
+      if (currentUser.level !== EnglishLevel.PRE_A0) return;
+      if (!isPreA0Completed(currentProgress)) return;
+
+      // Auto-upgrade
+      const updatedUser = { ...currentUser, level: EnglishLevel.A0 };
+      onUpdateUser(updatedUser);
+      
+      // Could show a toast/dialog here
+      alert("Chúc mừng! Bạn đã hoàn thành tất cả bài Pre-A0. Cấp độ A0 – Ngữ pháp sống sót đã được mở khóa.");
+  };
+
+  const finalizeLesson = (drills: GrammarDrillItem[], results: boolean[]) => {
+      if (!selectedLesson) return;
+
+      const correctCount = results.filter(Boolean).length;
+      const totalDrills = drills.length;
+      const score = Math.round((correctCount / totalDrills) * 100);
+
+      // Save to storage
+      // Only mark mastered if score is perfect? Or simply completion?
+      // Requirement says: "When a user completes all drills in a lesson, that lesson is automatically marked as completed/mastered"
+      // Let's assume completion is enough, or maybe > 70%? 
+      // For now, let's treat completion of all items as mastery.
+      
+      const newState: GrammarLessonState = 'mastered'; 
+      
+      const updatedProgress = updateLessonProgress(progress, selectedLesson.id, {
+          state: newState,
+          completedDrills: totalDrills,
+          totalDrills,
+          lastScore: score
+      });
+      
+      setProgress(updatedProgress);
+      setLessonResult({ correct: correctCount, total: totalDrills, score });
+
+      // Check for auto-upgrade
+      maybeUpgradePreA0ToA0(user, updatedProgress);
+  };
+
+  const handleCheckAnswer = () => {
+    if (!selectedLesson) return;
+    const currentDrill = selectedLesson.drills[drillIndex];
+    
+    const isCorrect = evaluateDrillAnswer(currentDrill, userAnswer);
+
+    // Update results
+    setDrillResults(prev => {
+        const next = [...prev];
+        next[drillIndex] = isCorrect;
+        return next;
+    });
+
+    if (!isCorrect) {
+        alert("Incorrect. The correct answer is: " + (Array.isArray(currentDrill.answer) ? currentDrill.answer.join(" ") : currentDrill.answer));
+    } else {
+        // Optional immediate feedback
+    }
+
+    // Move next or finalize
+    if (drillIndex + 1 < selectedLesson.drills.length) {
+        setDrillIndex(drillIndex + 1);
+        setUserAnswer(null);
+    } else {
+        // Finalize
+        // Need to pass the FULL results including this one
+        const finalResults = [...drillResults];
+        finalResults[drillIndex] = isCorrect;
+        
+        finalizeLesson(selectedLesson.drills, finalResults);
+    }
+  };
+
+  // Find next recommended lesson (First available/in-progress from PreA0 up)
+  const nextLesson = useMemo(() => {
+      for (const group of grammarLevels) {
+          if (!isLevelUnlocked(group.level, progress, user.level)) continue;
+          for (const lesson of group.lessons) {
+              const p = progress[lesson.id];
+              if (!p || p.state !== 'mastered') {
+                  return lesson;
+              }
+          }
       }
-  };
+      return null;
+  }, [progress, user.level]);
 
-  if (user.vocabList.length === 0) {
+  /* --- RENDER HOME --- */
+  if (viewMode === 'HOME') {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center space-y-6">
-        <div className="text-6xl">📭</div>
-        <h2 className="text-2xl font-bold text-slate-800">No Words Saved Yet</h2>
-        <p className="text-slate-600 max-w-sm">Go to "Discover Words" to build your vocabulary list first.</p>
-        <div className="flex gap-4">
-           <Button onClick={onBack} variant="secondary">Back to Dashboard</Button>
-        </div>
+      <div className="min-h-screen bg-slate-50 flex flex-col relative pb-20">
+         <div className="bg-white p-4 shadow-sm flex items-center gap-4 sticky top-0 z-10 border-b border-slate-200">
+             <button onClick={onBack} className="text-slate-500 hover:text-slate-800 font-medium">← Back</button>
+             <div>
+                <h2 className="font-bold text-slate-800 text-lg leading-tight">Grammar Guru</h2>
+                <p className="text-xs text-slate-500">Ngữ pháp theo mục đích sử dụng</p>
+             </div>
+         </div>
+
+         <div className="p-4 space-y-6 max-w-2xl mx-auto w-full">
+            
+            {/* Gentle Reminder for Unknown Level */}
+            {user.level === EnglishLevel.UNKNOWN && (
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-amber-800 text-sm flex gap-3 items-start">
+                   <div className="text-xl">💡</div>
+                   <div>
+                       <p className="mb-2">
+                           Hiện tại app đang tạm xếp bạn ở cấp độ <strong>A0</strong>. 
+                           Nếu bạn đã có nền tảng tiếng Anh, hãy làm bài kiểm tra xếp lớp để có thể bắt đầu từ A1 hoặc A2.
+                       </p>
+                       <button onClick={onGoToPlacement} className="text-indigo-600 font-bold hover:underline">
+                           👉 Làm bài kiểm tra ngay
+                       </button>
+                   </div>
+                </div>
+            )}
+
+            {/* Pre-A0 Specific Header */}
+            {user.level === EnglishLevel.PRE_A0 && (
+                 <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-blue-900 text-sm">
+                    <p className="font-bold mb-1">Trình độ hiện tại: Pre-A0 – Khóa nền tảng siêu cơ bản.</p>
+                    <p>Bạn đang học khóa nền tảng dành cho người mới bắt đầu. Hoàn thành Pre-A0 để mở khóa A0, A1, A2…</p>
+                 </div>
+            )}
+
+            {/* Recommended Card */}
+            {nextLesson && (
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg shadow-blue-200 animate-[fadeIn_0.5s]">
+                    <div className="flex justify-between items-start mb-2">
+                        <span className="bg-white/20 px-2 py-1 rounded text-xs font-bold backdrop-blur-md">Bài học tiếp theo</span>
+                        <span className="text-xs font-mono opacity-80">{nextLesson.level}</span>
+                    </div>
+                    <h3 className="text-xl font-bold mb-1">{nextLesson.purposeTitleVi}</h3>
+                    <p className="text-blue-100 text-sm mb-4 italic">"{nextLesson.sampleSentenceEn}"</p>
+                    <Button onClick={() => handleLessonSelect(nextLesson, false)} variant="secondary" size="sm" className="w-full">
+                        Bắt đầu bài này &rarr;
+                    </Button>
+                </div>
+            )}
+
+            {/* Level Lists */}
+            {grammarLevels.map(group => {
+                const unlocked = isLevelUnlocked(group.level, progress, user.level);
+                const masteredCount = group.lessons.filter(l => progress[l.id]?.state === 'mastered').length;
+                
+                return (
+                    <div key={group.level} className={`space-y-3 ${!unlocked ? 'opacity-70 grayscale-[0.5]' : ''}`}>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                    <span className={`px-2 py-0.5 rounded text-xs text-white ${unlocked ? 'bg-indigo-500' : 'bg-slate-400'}`}>{group.level}</span>
+                                    {group.titleVi}
+                                </h3>
+                                <p className="text-xs text-slate-500">{group.descriptionVi}</p>
+                            </div>
+                            <div className="text-xs font-mono font-bold text-slate-400">
+                                {masteredCount}/{group.lessons.length}
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {group.lessons.map(lesson => {
+                                const state = progress[lesson.id]?.state || 'locked';
+                                const isAccessible = unlocked; 
+                                
+                                return (
+                                    <button 
+                                        key={lesson.id}
+                                        onClick={() => handleLessonSelect(lesson, !isAccessible)}
+                                        className={`relative text-left p-4 rounded-xl border-2 transition-all hover:scale-[1.02] active:scale-95
+                                            ${!isAccessible 
+                                                ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' 
+                                                : state === 'mastered'
+                                                    ? 'bg-emerald-50 border-emerald-200 text-slate-800'
+                                                    : 'bg-white border-slate-200 hover:border-blue-400 text-slate-800 shadow-sm'
+                                            }`}
+                                    >
+                                        {!isAccessible && <div className="absolute top-2 right-2 text-lg">🔒</div>}
+                                        {state === 'mastered' && <div className="absolute top-2 right-2 text-emerald-500">✅</div>}
+                                        
+                                        <div className="font-bold text-sm mb-1">{lesson.purposeTitleVi}</div>
+                                        <div className="text-xs text-slate-500 mb-2">{lesson.purposeTitleEn}</div>
+                                        <div className="text-xs italic opacity-80 border-l-2 border-current pl-2">
+                                            "{lesson.sampleSentenceVi}"
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })}
+         </div>
+
+         {/* Lock Modal */}
+         {showLockInfo && (
+             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6 fade-in">
+                 <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl text-center space-y-4">
+                     <div className="text-4xl">🔒</div>
+                     <h3 className="font-bold text-lg text-slate-800">Cấp độ {showLockInfo.level} bị khóa</h3>
+                     <p className="text-slate-600 text-sm">{showLockInfo.message}</p>
+                     <Button onClick={() => setShowLockInfo(null)} className="w-full">Đã hiểu</Button>
+                 </div>
+             </div>
+         )}
       </div>
     );
   }
 
-  if (isAllMastered) {
+  /* --- RENDER LESSON DETAIL --- */
+  if (viewMode === 'DETAIL' && selectedLesson) {
       return (
-        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center space-y-6">
-            <div className="text-6xl">🎓</div>
-            <h2 className="text-2xl font-bold text-slate-800">All Words Mastered!</h2>
-            <p className="text-slate-600 max-w-sm">You have mastered all your currently saved words. Go to "Discover Words" to add more challenging vocabulary!</p>
-            <Button onClick={onBack} variant="secondary">Back to Dashboard</Button>
-        </div>
+          <div className="min-h-screen bg-slate-50 flex flex-col relative">
+              <div className="bg-white p-4 shadow-sm flex items-center gap-4 border-b border-slate-200">
+                <button onClick={() => setViewMode('HOME')} className="text-slate-500 hover:text-slate-800 font-medium">← Back</button>
+                <div className="flex-1">
+                    <h2 className="font-bold text-slate-800 leading-none">{selectedLesson.purposeTitleVi}</h2>
+                    <p className="text-xs text-slate-500">{selectedLesson.purposeTitleEn}</p>
+                </div>
+              </div>
+              
+              <div className="p-6 max-w-lg mx-auto w-full space-y-8">
+                  <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-xl">
+                      <p className="text-lg font-medium text-slate-800 mb-1">{selectedLesson.sampleSentenceEn}</p>
+                      <p className="text-slate-600 italic">{selectedLesson.sampleSentenceVi}</p>
+                  </div>
+
+                  <div className="space-y-4">
+                      <h3 className="font-bold text-slate-800 border-b pb-2">Giải thích nhanh</h3>
+                      <div className="space-y-2">
+                          <p className="text-slate-700">{selectedLesson.explanationVi}</p>
+                          <p className="text-slate-500 text-sm italic bg-slate-100 p-2 rounded">{selectedLesson.explanationEn}</p>
+                      </div>
+                  </div>
+
+                  <div className="pt-8">
+                      <Button onClick={startDrill} className="w-full text-lg py-4 shadow-xl">
+                          Bắt đầu luyện tập
+                      </Button>
+                  </div>
+              </div>
+          </div>
       );
   }
 
-  if (!content || !currentWord) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin text-4xl">⏳</div></div>;
+  /* --- RENDER DRILL --- */
+  if (viewMode === 'DRILL' && selectedLesson) {
+      const currentDrill = selectedLesson.drills[drillIndex];
 
-  const handleNextStep = () => {
-    const nextSteps: Record<string, any> = {
-      'INTRO': 'QUIZ_MEANING',
-      'QUIZ_MEANING': 'QUIZ_TRANS',
-      'QUIZ_TRANS': 'QUIZ_SCRAMBLE',
-      'QUIZ_SCRAMBLE': 'SUCCESS'
-    };
-    setStep(nextSteps[step]);
-  };
+      if (lessonResult) {
+          return (
+              <div className="min-h-screen bg-emerald-50 flex flex-col items-center justify-center p-6 text-center space-y-6">
+                  <FullScreenFireworks />
+                  <div className="text-6xl animate-bounce">🎓</div>
+                  <h2 className="text-2xl font-bold text-slate-800">Bài học hoàn thành!</h2>
+                  
+                  <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm space-y-4">
+                      <div className="text-sm uppercase tracking-wide text-slate-500 font-bold">Kết quả</div>
+                      <div className="text-4xl font-bold text-emerald-600">{lessonResult.score}%</div>
+                      <div className="flex justify-between text-sm text-slate-600 border-t pt-4">
+                          <span>Đúng: {lessonResult.correct}</span>
+                          <span>Tổng: {lessonResult.total}</span>
+                      </div>
+                  </div>
 
-  const playPronunciation = () => {
-    if (currentWord) {
-      const u = new SpeechSynthesisUtterance(currentWord.word);
-      window.speechSynthesis.speak(u);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-50 via-emerald-50 to-slate-50 flex flex-col items-center justify-center p-6 relative">
-      <div className="absolute top-6 left-6 z-20">
-         <LanguageSelector currentLang={user.language || 'en'} onChange={onLangChange} />
-      </div>
-      
-      {step === 'SUCCESS' && <FullScreenFireworks />}
-
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 space-y-6 fade-in relative">
-        <button onClick={onBack} className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors">✕</button>
-        
-        {/* Progress Bar */}
-        <div className="w-full bg-slate-100 rounded-full h-2 mb-4">
-           <div className="bg-emerald-500 h-2 rounded-full transition-all duration-500" 
-             style={{ width: `${['INTRO','QUIZ_MEANING','QUIZ_TRANS','QUIZ_SCRAMBLE','SUCCESS'].indexOf(step) * 25}%` }}>
-           </div>
-        </div>
-
-        {step === 'INTRO' && (
-          <div className="text-center space-y-6">
-            <h2 className="text-3xl font-bold text-slate-800 flex items-center justify-center gap-3">
-                {content.word}
-                <button onClick={playPronunciation} className="text-2xl hover:scale-110 transition-transform" title="Listen">🔊</button>
-            </h2>
-            {content.ipa && <p className="text-sm font-mono text-slate-400 bg-slate-50 inline-block px-2 py-1 rounded">{content.ipa}</p>}
-            <p className="text-lg text-slate-600">{content.definition}</p>
-            
-            <div className="bg-slate-50 p-4 rounded-xl text-left space-y-3">
-              <h3 className="font-bold text-slate-700 text-sm uppercase tracking-wide">
-                 Word Forms & Examples
-              </h3>
-              
-              {/* Word Forms */}
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 mb-2 border-b border-slate-200 pb-2">
-                 {content.wordForms.noun && <div><span className="font-bold">n.</span> {content.wordForms.noun}</div>}
-                 {content.wordForms.verb && <div><span className="font-bold">v.</span> {content.wordForms.verb}</div>}
-                 {content.wordForms.adjective && <div><span className="font-bold">adj.</span> {content.wordForms.adjective}</div>}
-                 {content.wordForms.adverb && <div><span className="font-bold">adv.</span> {content.wordForms.adverb}</div>}
+                  <Button onClick={() => setViewMode('HOME')} className="w-full max-w-xs">Quay về danh sách</Button>
               </div>
+          );
+      }
 
-              {content.situations.map((sit, i) => (
-                <div key={i} className="text-sm border-b border-slate-200 pb-2 last:border-0 last:pb-0">
-                  <p className="text-emerald-700 font-medium">"{sit.english}"</p>
-                  <p className="text-slate-500 text-xs italic">{sit.translation}</p>
-                </div>
-              ))}
-            </div>
-            
-            <Button onClick={handleNextStep} className="w-full">{t.startDrill}</Button>
-          </div>
-        )}
+      return (
+          <div className="min-h-screen bg-slate-50 flex flex-col relative">
+             <div className="w-full bg-slate-200 h-2">
+                 <div className="bg-blue-600 h-2 transition-all duration-300" style={{ width: `${(drillIndex / selectedLesson.drills.length) * 100}%` }}></div>
+             </div>
 
-        {step === 'QUIZ_MEANING' && (
-          <div className="space-y-6">
-            <h3 className="text-xl font-bold text-slate-800 text-center">{content.meaningQuiz.question}</h3>
-            <div className="space-y-3">
-              {content.meaningQuiz.options.map((opt, i) => (
-                <button
-                  key={i}
-                  onClick={() => {
-                    if(i === content.meaningQuiz.correctIndex) handleNextStep();
-                    else setMistakes(m => m + 1);
-                  }}
-                  className="w-full p-4 rounded-xl border-2 border-slate-100 hover:border-emerald-500 hover:bg-emerald-50 transition-all font-medium text-slate-700 text-left"
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+             <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-lg mx-auto w-full space-y-8">
+                 <div className="w-full text-center">
+                     <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Question {drillIndex + 1}/{selectedLesson.drills.length}</span>
+                     {/* Drill Render */}
+                     <div className="mt-4">
+                        <DrillRenderer 
+                           drill={currentDrill} 
+                           onAnswer={setUserAnswer} 
+                           value={userAnswer}
+                        />
+                     </div>
+                 </div>
 
-        {step === 'QUIZ_TRANS' && (
-          <div className="space-y-6">
-            <h3 className="text-xl font-bold text-slate-800 text-center">{t.translationQuiz}</h3>
-            <div className="bg-indigo-50 p-4 rounded-xl text-center text-indigo-800 font-medium text-lg">
-              "{content.translationQuiz.nativeSentence}"
-            </div>
-            
-            {/* Interactive Sentence Building Area */}
-            <div className={`min-h-[3rem] p-3 rounded-xl border-2 flex flex-wrap gap-2 items-center justify-center transition-all ${quizStatus === 'WRONG' ? 'border-red-300 bg-red-50' : quizStatus === 'CORRECT' ? 'border-green-300 bg-green-50' : 'border-slate-200 bg-slate-50'}`}>
-                {userSentence.length === 0 && <span className="text-slate-400 text-sm italic">Tap words to build sentence...</span>}
-                {userSentence.map((item) => (
-                   <button 
-                     key={item.id} 
-                     onClick={() => handleWordClick(item, 'sentence')}
-                     className="bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm text-slate-700 hover:bg-red-50 hover:border-red-200 font-medium animate-[pop_0.2s]"
-                   >
-                     {item.word}
-                   </button>
-                ))}
-            </div>
-
-            {/* Word Bank */}
-            <div className="flex flex-wrap gap-2 justify-center">
-               {wordBank.map((item) => (
-                 <button 
-                   key={item.id} 
-                   onClick={() => handleWordClick(item, 'bank')}
-                   className="bg-white border border-slate-200 px-3 py-2 rounded-lg shadow-sm text-slate-600 hover:bg-indigo-50 hover:border-indigo-200 transition-all"
-                 >
-                   {item.word}
-                 </button>
-               ))}
-            </div>
-            
-            {quizStatus === 'CORRECT' ? (
-                <div className="space-y-2">
-                    <div className="text-center text-green-600 font-bold mb-2">Correct! 🎉</div>
-                    <Button onClick={handleNextStep} className="w-full bg-green-600 hover:bg-green-700">Continue</Button>
-                </div>
-            ) : (
-                <div className="space-y-2">
-                    {quizStatus === 'WRONG' && <div className="text-center text-red-500 text-sm font-bold">Try again!</div>}
-                    <Button onClick={() => checkInteractiveSentence(content.translationQuiz.correctEnglish)} className="w-full" disabled={userSentence.length === 0}>Check Answer</Button>
-                </div>
-            )}
-          </div>
-        )}
-
-        {step === 'QUIZ_SCRAMBLE' && (
-          <div className="space-y-6 text-center">
-             <h3 className="text-xl font-bold text-slate-800">{t.usageQuiz}</h3>
-             <p className="text-slate-500">{content.scrambleSentence.translation}</p>
+                 {/* Check Answer Button */}
+                 <div className="w-full pt-4">
+                    <Button 
+                        onClick={handleCheckAnswer} 
+                        className="w-full py-4 text-lg shadow-xl"
+                        disabled={userAnswer === null || (Array.isArray(userAnswer) && userAnswer.length === 0) || (typeof userAnswer === 'string' && userAnswer.length === 0)}
+                    >
+                        Check Answer
+                    </Button>
+                 </div>
+             </div>
              
-              {/* Interactive Sentence Building Area */}
-            <div className={`min-h-[3rem] p-3 rounded-xl border-2 flex flex-wrap gap-2 items-center justify-center transition-all ${quizStatus === 'WRONG' ? 'border-red-300 bg-red-50' : quizStatus === 'CORRECT' ? 'border-green-300 bg-green-50' : 'border-slate-200 bg-slate-50'}`}>
-                {userSentence.length === 0 && <span className="text-slate-400 text-sm italic">Arrage the words...</span>}
-                {userSentence.map((item) => (
-                   <button 
-                     key={item.id} 
-                     onClick={() => handleWordClick(item, 'sentence')}
-                     className="bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm text-slate-700 hover:bg-red-50 hover:border-red-200 font-medium animate-[pop_0.2s]"
-                   >
-                     {item.word}
-                   </button>
-                ))}
-            </div>
-
-            {/* Word Bank */}
-            <div className="flex flex-wrap gap-2 justify-center">
-               {wordBank.map((item) => (
-                 <button 
-                   key={item.id} 
-                   onClick={() => handleWordClick(item, 'bank')}
-                   className="bg-white border border-slate-200 px-3 py-2 rounded-lg shadow-sm text-slate-600 hover:bg-emerald-50 hover:border-emerald-200 transition-all"
-                 >
-                   {item.word}
-                 </button>
-               ))}
-            </div>
-             
-             {quizStatus === 'CORRECT' ? (
-                <div className="space-y-2">
-                    <div className="text-center text-green-600 font-bold mb-2">Perfect! 🎉</div>
-                    <Button onClick={handleNextStep} className="w-full bg-green-600 hover:bg-green-700">Finish</Button>
-                </div>
-            ) : (
-                <div className="space-y-2">
-                    {quizStatus === 'WRONG' && <div className="text-center text-red-500 text-sm font-bold">Incorrect order.</div>}
-                    <Button onClick={() => checkInteractiveSentence(content.scrambleSentence.correct)} className="w-full" disabled={userSentence.length === 0}>Check Answer</Button>
-                </div>
-            )}
+             <div className="p-4 text-center">
+                 <button onClick={() => setViewMode('DETAIL')} className="text-slate-400 hover:text-slate-600 text-sm">Thoát bài tập</button>
+             </div>
           </div>
-        )}
+      );
+  }
 
-        {step === 'SUCCESS' && (
-          <div className="text-center space-y-6 py-8">
-            <div className="text-6xl animate-bounce">🏆</div>
-            <h2 className="text-2xl font-bold text-slate-800">{t.drillComplete}</h2>
-            
-            {/* New Mastery Status */}
-            <div className="bg-slate-50 p-4 rounded-xl inline-block">
-               <div className="text-emerald-600 font-bold">
-                   <span className="block text-2xl mb-1">🌟 MASTERED! 🌟</span>
-                   <span className="text-sm font-normal text-slate-500">You won't see this word in drills again.</span>
-               </div>
-            </div>
-
-            <p className="text-slate-600">
-              {mistakes === 0 ? t.drillSuccess : t.drillFail}
-            </p>
-            <div className="grid grid-cols-2 gap-4">
-               <Button onClick={() => startDrill()} variant="secondary">{t.next}</Button>
-               <Button onClick={onBack}>{t.close}</Button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return null;
 };
 
 /* -------------------------------------------------------------------------- */
-/*                          WRITING ASSISTANT VIEW                            */
+/*                                DASHBOARD VIEW                              */
 /* -------------------------------------------------------------------------- */
-
-const WritingAssistantView: React.FC<{
+const DashboardView: React.FC<{
   user: UserProfile;
-  onBack: () => void;
-}> = ({ user, onBack }) => {
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<{role: 'user'|'ai', text: string}[]>([]);
-  const [loading, setLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  lang: AppLanguage;
+  onNavigate: (view: AppView) => void;
+  onUpdateUser: (u: UserProfile) => void;
+}> = ({ user, lang, onNavigate, onUpdateUser }) => {
+    return (
+        <div className="min-h-screen bg-slate-50 p-6 space-y-6">
+            <header className="flex justify-between items-center">
+                <div>
+                   <h1 className="text-2xl font-bold text-slate-800">Hello, {user.name}</h1>
+                   <p className="text-slate-500">Level: {user.level}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                   <span className="text-xl">🔥</span>
+                   <span className="font-bold text-slate-700">{user.streak}</span>
+                </div>
+            </header>
+            
+            <MissionTracker user={user} lang={lang} />
+            
+            <div className="grid grid-cols-1 gap-4">
+                 <button onClick={() => onNavigate(AppView.GRAMMAR_PRACTICE)} className="p-6 bg-white rounded-xl shadow border border-slate-200 text-left hover:border-indigo-400 transition-all flex justify-between items-center">
+                    <div>
+                        <h3 className="font-bold text-lg text-indigo-600 mb-1">Grammar Guru</h3>
+                        <p className="text-sm text-slate-500">Master grammar rules with purpose</p>
+                    </div>
+                    <span className="text-2xl">📚</span>
+                 </button>
+                 
+                 <button onClick={() => onNavigate(AppView.PLACEMENT_TEST)} className="p-6 bg-white rounded-xl shadow border border-slate-200 text-left hover:border-blue-400 transition-all flex justify-between items-center">
+                    <div>
+                        <h3 className="font-bold text-lg text-blue-600 mb-1">Placement Test</h3>
+                        <p className="text-sm text-slate-500">Re-check your level</p>
+                    </div>
+                    <span className="text-2xl">🎯</span>
+                 </button>
+            </div>
+            
+            <div className="pt-6 text-center text-xs text-slate-400">
+                FluentFlow AI v{APP_VERSION}
+            </div>
+        </div>
+    );
+};
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
-    const userMsg = input;
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
-    setInput('');
-    setLoading(true);
-
-    try {
-      const response = await askGenericAI({ 
-        mode: 'WRITING_FEEDBACK', 
-        level: user.level,
-        context: user.language === 'vi' ? 'Vietnamese learner' : 'English learner'
-      }, userMsg);
-      
-      setMessages(prev => [...prev, { role: 'ai', text: response }]);
-    } catch (e) {
-      setMessages(prev => [...prev, { role: 'ai', text: "Sorry, I encountered an error." }]);
-    } finally {
-      setLoading(false);
-    }
-  };
+/* -------------------------------------------------------------------------- */
+/*                                MAIN APP COMPONENT                          */
+/* -------------------------------------------------------------------------- */
+const App: React.FC = () => {
+  const [view, setView] = useState<AppView>(AppView.WELCOME);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [lang, setLang] = useState<AppLanguage>('vi');
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const loaded = loadUserProfile();
+    if (loaded) {
+        setUser(loaded);
+        setView(AppView.DASHBOARD);
+        if (loaded.language) setLang(loaded.language);
+    }
+  }, []);
 
+  const handleUpdateUser = (u: UserProfile) => {
+      setUser(u);
+      saveUserProfile(u);
+  };
+  
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-       <div className="bg-white p-4 shadow-sm flex items-center gap-4 sticky top-0 z-10">
-         <button onClick={onBack} className="text-slate-500 hover:text-slate-800">← Back</button>
-         <h2 className="font-bold text-slate-800">AI Tutor</h2>
-       </div>
-       
-       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 && (
-             <div className="text-center text-slate-400 mt-10">
-                <div className="text-4xl mb-2">👋</div>
-                <p>Ask me anything or paste a sentence for correction!</p>
-             </div>
-          )}
-          {messages.map((m, i) => (
-             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] rounded-2xl p-4 ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 shadow-sm'}`}>
-                   <MarkdownRenderer content={m.text} />
-                </div>
-             </div>
-          ))}
-          {loading && (
-             <div className="flex justify-start">
-               <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex gap-2">
-                 <span className="animate-bounce">●</span><span className="animate-bounce delay-100">●</span><span className="animate-bounce delay-200">●</span>
-               </div>
-             </div>
-          )}
-          <div ref={messagesEndRef} />
-       </div>
+      <>
+         {/* Render view based on state */}
+         {view === AppView.WELCOME && <WelcomeView onStart={() => setView(AppView.LOGIN)} />}
+         
+         {view === AppView.LOGIN && <LoginView onLogin={(p, l) => {
+             // Create user
+             const newUser: UserProfile = {
+                name: "Learner",
+                level: EnglishLevel.UNKNOWN,
+                xp: 0,
+                streak: 0,
+                badges: [],
+                titles: [],
+                vocabList: [],
+                grammarList: [],
+                isReturning: false,
+                learningStats: { wordsLearned: 0, sentencesSpoken: 0, grammarPoints: 0 },
+                language: l
+             };
+             handleUpdateUser(newUser);
+             setLang(l);
+             setView(AppView.LANDING);
+         }} onSkip={(l) => {
+             const newUser: UserProfile = {
+                name: "Guest",
+                level: EnglishLevel.UNKNOWN,
+                xp: 0,
+                streak: 0,
+                badges: [],
+                titles: [],
+                vocabList: [],
+                grammarList: [],
+                isReturning: false,
+                learningStats: { wordsLearned: 0, sentencesSpoken: 0, grammarPoints: 0 },
+                language: l
+             };
+             handleUpdateUser(newUser);
+             setLang(l);
+             setView(AppView.LANDING);
+         }} />}
 
-       <div className="p-4 bg-white border-t border-slate-200">
-          <div className="flex gap-2">
-             <input 
-               className="flex-1 border border-slate-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-               placeholder="Type here..."
-               value={input}
-               onChange={e => setInput(e.target.value)}
-               onKeyDown={e => e.key === 'Enter' && handleSend()}
-               disabled={loading}
-             />
-             <Button onClick={handleSend} disabled={loading || !input.trim()}>Send</Button>
-          </div>
-       </div>
-    </div>
+         {view === AppView.LANDING && <WelcomeLevelChoiceView 
+            onPreA0={() => {
+                if (user) {
+                    const u = { ...user, level: EnglishLevel.PRE_A0 };
+                    handleUpdateUser(u);
+                    setView(AppView.DASHBOARD);
+                }
+            }} 
+            onStandard={() => {
+                setView(AppView.PLACEMENT_TEST);
+            }} 
+         />}
+
+         {view === AppView.PLACEMENT_TEST && <PlacementTestView 
+            lang={lang}
+            onComplete={(lvl) => {
+                if (user) {
+                    const u = { ...user, level: lvl };
+                    handleUpdateUser(u);
+                    setView(AppView.DASHBOARD);
+                }
+            }}
+         />}
+
+         {view === AppView.DASHBOARD && user && <DashboardView 
+            user={user} 
+            lang={lang} 
+            onNavigate={setView}
+            onUpdateUser={handleUpdateUser}
+         />}
+
+         {view === AppView.GRAMMAR_PRACTICE && user && <GrammarGuruView 
+            user={user}
+            onBack={() => setView(AppView.DASHBOARD)}
+            onGoToPlacement={() => setView(AppView.PLACEMENT_TEST)}
+            onUpdateUser={handleUpdateUser}
+         />}
+      </>
   );
-};
-
-/* -------------------------------------------------------------------------- */
-/*                           SPEAKING PRACTICE VIEW                           */
-/* -------------------------------------------------------------------------- */
-
-const SpeakingPracticeView: React.FC<{
-    user: UserProfile;
-    onBack: () => void;
-}> = ({ user, onBack }) => {
-    const [scenario, setScenario] = useState<SpeakingScenarioData | null>(null);
-    const [isRecording, setIsRecording] = useState(false);
-    const [feedback, setFeedback] = useState<SpeakingFeedback | null>(null);
-    const [analyzing, setAnalyzing] = useState(false);
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const chunksRef = useRef<Blob[]>([]);
-
-    const loadScenario = async () => {
-        setFeedback(null);
-        const data = await generateSpeakingSentence("Random", user.level, user.language);
-        setScenario(data);
-    };
-
-    useEffect(() => { loadScenario(); }, []);
-
-    const startRecording = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const recorder = new MediaRecorder(stream);
-            mediaRecorderRef.current = recorder;
-            chunksRef.current = [];
-
-            recorder.ondataavailable = (e) => {
-                if (e.data.size > 0) chunksRef.current.push(e.data);
-            };
-
-            recorder.start();
-            setIsRecording(true);
-        } catch (e) {
-            alert("Microphone access denied or not available.");
-        }
-    };
-
-    const stopRecording = async () => {
-        if (!mediaRecorderRef.current) return;
-        
-        mediaRecorderRef.current.onstop = async () => {
-            const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-            setIsRecording(false);
-            setAnalyzing(true);
-            
-            try {
-                const base64 = await blobToBase64(blob);
-                const result = await evaluateSpeaking(base64, scenario?.prompt || "", user.language);
-                setFeedback(result);
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setAnalyzing(false);
-                // Stop all tracks
-                mediaRecorderRef.current?.stream.getTracks().forEach(t => t.stop());
-            }
-        };
-        
-        mediaRecorderRef.current.stop();
-    };
-
-    return (
-        <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 relative">
-             <button onClick={onBack} className="absolute top-6 left-6 text-slate-400 hover:text-white">✕ Exit</button>
-             
-             {scenario ? (
-                 <div className="max-w-lg w-full text-center space-y-8">
-                     <div className="space-y-4">
-                         <h2 className="text-3xl font-bold leading-tight">"{scenario.prompt}"</h2>
-                         <p className="text-slate-400 text-lg">{scenario.subText}</p>
-                     </div>
-
-                     <div className="h-64 flex items-center justify-center">
-                        {analyzing ? (
-                            <div className="animate-pulse text-indigo-400">Analyzing your pronunciation...</div>
-                        ) : feedback ? (
-                            <div className={`bg-slate-800 p-6 rounded-2xl border ${feedback.isCorrect ? 'border-green-500' : 'border-amber-500'} text-left w-full`}>
-                                <div className="font-bold mb-2 flex items-center gap-2">
-                                    {feedback.isCorrect ? '✅ Excellent!' : '⚠️ Needs Improvement'}
-                                </div>
-                                <p className="text-slate-300 mb-2">You said: "{feedback.transcription}"</p>
-                                <p className="text-sm text-slate-400 mb-4">{feedback.feedback}</p>
-                                {feedback.mispronouncedWords.length > 0 && (
-                                    <div className="text-xs text-red-300">
-                                        Check: {feedback.mispronouncedWords.join(", ")}
-                                    </div>
-                                )}
-                                <div className="mt-4 flex gap-2">
-                                   <Button size="sm" onClick={() => setFeedback(null)} variant="secondary">Try Again</Button>
-                                   <Button size="sm" onClick={loadScenario}>Next Sentence</Button>
-                                </div>
-                            </div>
-                        ) : (
-                            <button 
-                                onClick={isRecording ? stopRecording : startRecording}
-                                className={`w-24 h-24 rounded-full flex items-center justify-center text-4xl transition-all ${isRecording ? 'bg-red-500 animate-pulse shadow-[0_0_30px_rgba(239,68,68,0.5)]' : 'bg-indigo-600 hover:bg-indigo-500 shadow-xl'}`}
-                            >
-                                {isRecording ? '⏹' : '🎤'}
-                            </button>
-                        )}
-                     </div>
-                     {!feedback && !analyzing && <div className="text-slate-500">Tap microphone to speak</div>}
-                 </div>
-             ) : (
-                 <div className="animate-spin text-4xl">⏳</div>
-             )}
-        </div>
-    );
-};
-
-/* -------------------------------------------------------------------------- */
-/*                           APP COMPONENT (MAIN)                             */
-/* -------------------------------------------------------------------------- */
-
-const App: React.FC = () => {
-    const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-    const [view, setView] = useState<AppView>(AppView.WELCOME);
-    const [viewParams, setViewParams] = useState<any>({});
-
-    useEffect(() => {
-        // Safe Version Check & Migration
-        const savedVersion = getStoredVersion();
-        
-        if (savedVersion !== APP_VERSION) {
-            console.log(`[App] Version mismatch (Old: ${savedVersion} vs New: ${APP_VERSION}). Clearing app-specific storage.`);
-            
-            // Only clear OUR keys, not the whole browser storage
-            clearAppStorage(); 
-            
-            // Set new version
-            setStoredVersion(APP_VERSION);
-            
-            // Reset user state in memory
-            setUserProfile(null);
-            setView(AppView.WELCOME);
-        } else {
-            // Check for saved user with Robust Error Handling
-            const parsed = loadUserProfile();
-            // Load separately tracked mastery progress
-            const progress = loadVocabProgress();
-
-            if (parsed) {
-                 // MIGRATION LOGIC: Ensure new fields exist
-                if (!parsed.learningStats) {
-                    parsed.learningStats = { wordsLearned: 0, sentencesSpoken: 0, grammarPoints: 0 };
-                }
-                if (!Array.isArray(parsed.badges)) {
-                    parsed.badges = [];
-                }
-                if (typeof parsed.streak !== 'number') {
-                    parsed.streak = 1;
-                }
-                
-                // Merge mastery progress into the user's vocab list
-                if (parsed.vocabList) {
-                    parsed.vocabList = parsed.vocabList.map((v: VocabWord) => {
-                         // Prefer the separate progress file, fallback to existing, default 0
-                         const mastery = progress[v.word]?.masteryLevel ?? v.masteryLevel ?? 0;
-                         return { ...v, masteryLevel: mastery };
-                    });
-                }
-                
-                setUserProfile(parsed);
-                setView(AppView.DASHBOARD);
-            }
-        }
-    }, []);
-
-    const handleLogin = (provider: string, lang: AppLanguage) => {
-        const newUser: UserProfile = {
-            name: "Learner",
-            level: EnglishLevel.UNKNOWN,
-            xp: 0,
-            streak: 1,
-            badges: [],
-            titles: ["Novice"],
-            vocabList: [],
-            grammarList: [],
-            isReturning: false,
-            learningStats: { wordsLearned: 0, sentencesSpoken: 0, grammarPoints: 0 },
-            language: lang
-        };
-        setUserProfile(newUser);
-        saveUserProfile(newUser);
-        
-        // If unknown level, go to placement, else dashboard
-        setView(AppView.LANDING);
-    };
-
-    const handleUpdateUser = (updated: UserProfile) => {
-        setUserProfile(updated);
-        saveUserProfile(updated);
-    };
-
-    const renderView = () => {
-        switch (view) {
-            case AppView.WELCOME:
-                return <WelcomeView onStart={() => setView(AppView.LOGIN)} />;
-            case AppView.LOGIN:
-                return <LoginView onLogin={handleLogin} onSkip={(lang) => handleLogin('guest', lang)} />;
-            case AppView.LANDING:
-                 return <LandingView onStart={() => setView(AppView.PLACEMENT_TEST)} onSkip={() => setView(AppView.DASHBOARD)} />;
-            case AppView.PLACEMENT_TEST:
-                return userProfile ? <PlacementTestView 
-                    lang={userProfile.language || 'en'}
-                    onLangChange={(l) => handleUpdateUser({...userProfile, language: l})}
-                    onComplete={(lvl) => {
-                        handleUpdateUser({...userProfile, level: lvl});
-                        setView(AppView.DASHBOARD);
-                    }} 
-                /> : null;
-            case AppView.DASHBOARD:
-                return userProfile ? <DashboardView 
-                    user={userProfile} 
-                    onNavigate={(v, p) => { setView(v); if(p) setViewParams(p); }} 
-                    onLanguageChange={(l) => handleUpdateUser({...userProfile, language: l})}
-                /> : null;
-            case AppView.NEW_VOCAB:
-                return userProfile ? <NewVocabView 
-                    topic={viewParams.topic || "Daily Life"} 
-                    level={viewParams.level || "B1"}
-                    lang={userProfile.language || 'en'}
-                    userVocab={userProfile.vocabList}
-                    onLangChange={(l) => handleUpdateUser({...userProfile, language: l})}
-                    onBack={() => setView(AppView.DASHBOARD)}
-                    onSave={(w) => {
-                        if (!userProfile.vocabList.some(v => v.word === w)) {
-                            const newWord: VocabWord = { id: Date.now().toString(), word: w, definition: '', masteryLevel: 0, lastReviewed: new Date().toISOString() };
-                            const updated = {
-                                ...userProfile, 
-                                vocabList: [...userProfile.vocabList, newWord],
-                                learningStats: { ...userProfile.learningStats, wordsLearned: (userProfile.learningStats?.wordsLearned || 0) + 1 }
-                            };
-                            handleUpdateUser(updated);
-                        }
-                    }}
-                /> : null;
-            case AppView.WRITING_ASSISTANT:
-                return userProfile ? <WritingAssistantView user={userProfile} onBack={() => setView(AppView.DASHBOARD)} /> : null;
-            case AppView.SPEAKING_PRACTICE:
-                return userProfile ? <SpeakingPracticeView user={userProfile} onBack={() => setView(AppView.DASHBOARD)} /> : null;
-            case AppView.VOCAB_DRILL:
-                return userProfile ? <VocabDrillView 
-                    user={userProfile} 
-                    onBack={() => setView(AppView.DASHBOARD)}
-                    onLangChange={(l) => handleUpdateUser({...userProfile, language: l})}
-                    onComplete={(word, newMastery) => {
-                        const idx = userProfile.vocabList.findIndex(v => v.word === word);
-                        if (idx >= 0) {
-                            const updatedList = [...userProfile.vocabList];
-                            
-                            // Safeguard: Ensure we do not downgrade mastery from 1 to 0 if previously mastered
-                            const currentLevel = updatedList[idx].masteryLevel || 0;
-                            const finalMastery = Math.max(currentLevel, newMastery);
-
-                            // Update local state
-                            updatedList[idx] = { 
-                                ...updatedList[idx], 
-                                masteryLevel: finalMastery, 
-                                lastReviewed: new Date().toISOString() 
-                            };
-                            handleUpdateUser({ ...userProfile, vocabList: updatedList });
-
-                            // Update separate progress storage
-                            const currentProgress = loadVocabProgress();
-                            currentProgress[word] = { 
-                                masteryLevel: finalMastery, 
-                                lastReviewed: new Date().toISOString() 
-                            };
-                            saveVocabProgress(currentProgress);
-                        }
-                    }}
-                /> : null;
-            case AppView.GRAMMAR_PRACTICE:
-            case AppView.GRAMMAR_REVIEW:
-                // Placeholder for features not yet implemented in detail
-                return (
-                    <div className="min-h-screen flex items-center justify-center flex-col gap-4 bg-slate-50">
-                        <h2 className="text-xl font-bold">Coming Soon</h2>
-                        <p className="text-slate-500">This feature is under development.</p>
-                        <Button onClick={() => setView(AppView.DASHBOARD)}>Back</Button>
-                    </div>
-                );
-            default:
-                return userProfile ? <DashboardView user={userProfile} onNavigate={setView} onLanguageChange={(l) => handleUpdateUser({...userProfile, language: l})} /> : <WelcomeView onStart={() => setView(AppView.LOGIN)} />;
-        }
-    };
-
-    return (
-        <div className="app-container font-sans text-slate-900">
-            {renderView()}
-        </div>
-    );
 };
 
 export default App;

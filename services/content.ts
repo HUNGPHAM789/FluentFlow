@@ -1,3 +1,14 @@
+// --- services/content.ts ---
+// === LOG ENTRY: 2024-05-22 10:00:00 ===
+// ACTION TYPE: bug_fix
+// LOG_TAG: grammar-level-logic
+// FILES AFFECTED:
+// - services/content.ts
+// DESCRIPTION:
+// Fix type mismatch for indexOf in generateGrammarExercise where answer can be string or string[].
+// CODE DIFF:
+// - correctIndex: drill.options.indexOf(drill.answer),
+// + correctIndex: (drill.options && typeof drill.answer === 'string') ? drill.options.indexOf(drill.answer) : 0,
 
 import { 
   PlacementQuestion, 
@@ -11,7 +22,7 @@ import {
 
 import { placementQuiz } from "../data/QuizData";
 import { vocabData } from "../data/vocabData";
-import { grammarData } from "../data/grammarData";
+import { grammarLevels } from "../data/grammarData";
 import { grammarRecallData } from "../data/grammarRecallData";
 import { speakingData } from "../data/speakingData";
 import { shadowingData } from "../data/shadowingData";
@@ -226,28 +237,44 @@ export const generateNewVocab = async (topic: string, level: string, lang: AppLa
 
 // --- GRAMMAR ---
 
+// Updated to work with new nested grammarLevels structure
 export const generateGrammarExercise = async (topic: string, lang: AppLanguage = 'en'): Promise<GrammarQuestion> => {
     await new Promise(r => setTimeout(r, 500));
     
-    // If topic is specific, try to find a lesson for it, else random
-    const lessons = grammarData; 
-    // Flatten exercises
-    const allExercises: GrammarQuestion[] = [];
+    // Flatten all drills from all levels
+    const allDrills: GrammarQuestion[] = [];
     
-    lessons.forEach(l => {
-        l.exercises.forEach((ex, i) => {
-            allExercises.push({
-                id: `${l.id}_${i}`,
-                topic: l.title,
-                question: ex.question,
-                options: ex.options,
-                correctIndex: ex.options.indexOf(ex.answer),
-                explanation: l.explanation
+    grammarLevels.forEach(group => {
+        group.lessons.forEach(lesson => {
+            lesson.drills.forEach(drill => {
+                allDrills.push({
+                    id: drill.id,
+                    topic: lesson.purposeTitleVi,
+                    question: drill.question,
+                    options: drill.options || [],
+                    // Fix: Check if answer is a string and options exist before indexOf, else 0
+                    correctIndex: (drill.options && typeof drill.answer === 'string') 
+                        ? drill.options.indexOf(drill.answer) 
+                        : 0,
+                    explanation: lesson.explanationVi
+                });
             });
         });
     });
 
-    return randomItem(allExercises);
+    if (allDrills.length === 0) {
+        // Fallback dummy
+        return {
+            id: 'dummy',
+            topic: 'General',
+            question: 'Select the correct word.',
+            options: ['A', 'B'],
+            correctIndex: 0,
+            explanation: 'None'
+        };
+    }
+
+    return randomItem(allDrills);
 };
 
 export const generateGrammarRecallQuestions = async (topic: string, rule: string, lang: AppLanguage = 'en'): Promise<GrammarQuestion[]> => {
