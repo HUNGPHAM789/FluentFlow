@@ -1,3 +1,15 @@
+=== LOG ENTRY: 2024-05-22 10:00:00 ===
+ACTION TYPE: bug_fix
+LOG_TAG: grammar-level-logic
+FILES AFFECTED:
+- services/content.ts
+DESCRIPTION:
+Fix type mismatch for indexOf in generateGrammarExercise where answer can be string or string[].
+CODE DIFF:
+- correctIndex: drill.options.indexOf(drill.answer),
++ correctIndex: (drill.options && typeof drill.answer === 'string') ? drill.options.indexOf(drill.answer) : 0,
+===========================================
+
 === LOG ENTRY: 2025-05-23 11:45 ===
 ACTION TYPE: refactor
 LOG_TAG: grammar-progress
@@ -77,7 +89,7 @@ FILES AFFECTED:
 - utils/storage.ts
 - src/engine/coreLearningEngine.ts
 DESCRIPTION:
-Added review queue selection for grammar based on DrillPerformance via getWeakDrillIds and CoreLearningEngine.getGrammarReviewItems/startGrammarReviewSession. No UI changes; review data is internal only for now.
+Added review queue selection for grammar based on DrillPerformance via getWeakDrillIds and CoreLearningEngine.getGrammarReviewItems/startGrammarReviewSession. No UI changes yet.
 CODE DIFF:
 + export const getWeakDrillIds = (options) => { ... }
 + static
@@ -109,4 +121,29 @@ DESCRIPTION:
 Flattened file structure by moving new components, hooks, and engine files from src/ to root directory to match existing project structure and fix relative module import errors.
 CODE DIFF:
 N/A (File moves)
+===========================================
+
+=== LOG ENTRY: 2025-05-23 14:30 ===
+ACTION TYPE: refactor
+LOG_TAG: navigation
+FILES AFFECTED:
+App.tsx
+ai_logs/change-log.txt
+DESCRIPTION:
+Centralized AppView-based rendering into a renderCoreView helper inside App.tsx to act as a basic navigation registry, replacing the inline if/switch logic and removing dependency on external viewRegistry.
+CODE DIFF:
++ const renderCoreView = (view, user, lang, setView, handleUpdateUser) => { switch(view) { ... } }
++ if (user) { const coreView = renderCoreView(...); if (coreView) return coreView; }
+===========================================
+
+=== LOG ENTRY: 2025-05-23 14:45 ===
+ACTION TYPE: ui_update
+LOG_TAG: grammar-ui
+FILES AFFECTED:
+src/components/ProfileAndAchievementsView.tsx
+DESCRIPTION:
+Added a merged mastery/review summary line on Profile & Achievements, combining overall grammar mastery percent, weak drills count, and today's reviewed drills using existing stats helpers without changing behavior.
+CODE DIFF:
++ const overallMasteryPercent = useMemo(() => { ... }, [grammarStats]);
++ <p>Mastery: {overallMasteryPercent}% • Needs Review: {weakDrillCount} • Reviewed Today: {reviewedToday}</p>
 ===========================================

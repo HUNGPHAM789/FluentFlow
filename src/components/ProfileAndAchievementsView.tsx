@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { UserProfile, AppView } from '../types';
 import { calculateGrammarStats } from '../utils/grammarStats';
 import { BADGE_DEFINITIONS } from '../data/badges';
-import { getWeakDrillIds } from '../utils/storage';
+import { getWeakDrillIds, countDrillsAnsweredToday } from '../utils/storage';
 
 interface ProfileAndAchievementsViewProps {
   user: UserProfile;
@@ -13,7 +13,14 @@ interface ProfileAndAchievementsViewProps {
 const ProfileAndAchievementsView: React.FC<ProfileAndAchievementsViewProps> = ({ user, onBack, onNavigate }) => {
   const grammarStats = useMemo(() => calculateGrammarStats(user), [user]);
   const weakDrillCount = useMemo(() => getWeakDrillIds().length, []);
+  const reviewedToday = useMemo(() => countDrillsAnsweredToday(), []);
   
+  const overallMasteryPercent = useMemo(() => {
+    const total = grammarStats.allLevels.reduce((acc, curr) => acc + curr.totalDrills, 0);
+    const completed = grammarStats.allLevels.reduce((acc, curr) => acc + curr.completedDrills, 0);
+    return total === 0 ? 0 : Math.round((completed / total) * 100);
+  }, [grammarStats]);
+
   const formatDate = (isoString?: string) => {
     if (!isoString) return 'Never';
     return new Date(isoString).toLocaleDateString(undefined, {
@@ -72,6 +79,17 @@ const ProfileAndAchievementsView: React.FC<ProfileAndAchievementsViewProps> = ({
                     <span className="text-sm font-bold text-slate-600 mt-1.5">{formatDate(user.lastActive)}</span>
                     <span className="text-xs text-slate-400 uppercase tracking-wide mt-1">Last Active</span>
                 </div>
+            </div>
+
+            {/* Summary Line */}
+            <div className="mt-4 pt-3 border-t border-slate-50 w-full">
+                 <p className="text-xs sm:text-sm text-slate-500 font-medium flex items-center justify-center gap-3 flex-wrap">
+                     <span>Mastery: <strong className="text-indigo-600">{overallMasteryPercent}%</strong></span>
+                     <span className="text-slate-300 hidden sm:inline">•</span>
+                     <span>Needs Review: <strong className="text-rose-500">{weakDrillCount}</strong></span>
+                     <span className="text-slate-300 hidden sm:inline">•</span>
+                     <span>Reviewed Today: <strong className="text-emerald-500">{reviewedToday}</strong></span>
+                 </p>
             </div>
          </div>
 

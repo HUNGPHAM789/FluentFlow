@@ -3,7 +3,10 @@ import { AppView, UserProfile, EnglishLevel, PlacementQuestion, AppLanguage } fr
 import { generatePlacementTest, determineLevel } from './services/content';
 import { translations } from './utils/translations';
 import { loadUserProfile, saveUserProfile } from './utils/storage';
-import { viewRegistry } from './navigation/viewRegistry';
+import DashboardView from './components/DashboardView';
+import GrammarGuruView from './components/GrammarGuruView';
+import GrammarProgressView from './components/GrammarProgressView';
+import ProfileAndAchievementsView from './components/ProfileAndAchievementsView';
 
 /* -------------------------------------------------------------------------- */
 /*                                WELCOME VIEW                                */
@@ -151,6 +154,73 @@ const PlacementTestView: React.FC<{
 };
 
 /* -------------------------------------------------------------------------- */
+/*                          VIEW RENDERING REGISTRY                           */
+/* -------------------------------------------------------------------------- */
+
+const renderCoreView = (
+  view: AppView,
+  user: UserProfile,
+  lang: AppLanguage,
+  setView: (v: AppView) => void,
+  handleUpdateUser: (u: UserProfile) => void
+) => {
+  switch (view) {
+    case AppView.DASHBOARD:
+      return (
+        <DashboardView 
+          user={user} 
+          lang={lang} 
+          onNavigate={setView} 
+          onUpdateUser={handleUpdateUser} 
+        />
+      );
+
+    case AppView.GRAMMAR_PRACTICE:
+      return (
+        <GrammarGuruView 
+          user={user} 
+          mode="lesson" 
+          onBack={() => setView(AppView.DASHBOARD)} 
+          onGoToPlacement={() => setView(AppView.PLACEMENT_TEST)}
+          onUpdateUser={handleUpdateUser} 
+          onViewStats={() => setView(AppView.GRAMMAR_STATS)} 
+        />
+      );
+
+    case AppView.GRAMMAR_REVIEW:
+      return (
+        <GrammarGuruView 
+          user={user} 
+          mode="review" 
+          onBack={() => setView(AppView.DASHBOARD)} 
+          onUpdateUser={handleUpdateUser} 
+        />
+      );
+
+    case AppView.GRAMMAR_STATS:
+      return (
+        <GrammarProgressView 
+          user={user} 
+          onBack={() => setView(AppView.DASHBOARD)} 
+          onContinue={() => setView(AppView.GRAMMAR_PRACTICE)} 
+        />
+      );
+
+    case AppView.PROFILE_ACHIEVEMENTS:
+      return (
+        <ProfileAndAchievementsView 
+          user={user} 
+          onBack={() => setView(AppView.DASHBOARD)} 
+          onNavigate={setView} 
+        />
+      );
+
+    default:
+      return null;
+  }
+};
+
+/* -------------------------------------------------------------------------- */
 /*                                MAIN APP COMPONENT                          */
 /* -------------------------------------------------------------------------- */
 const App: React.FC = () => {
@@ -202,45 +272,12 @@ const App: React.FC = () => {
      return <PlacementTestView lang={lang} onComplete={(lvl) => { if(user) { handleUpdateUser({ ...user, level: lvl }); setView(AppView.DASHBOARD); }}} />;
   }
 
-  const ActiveView = viewRegistry[view as keyof typeof viewRegistry];
-
-  if (ActiveView && user) {
-     if (view === AppView.GRAMMAR_PRACTICE) {
-         const GrammarView = ActiveView as any;
-         return <GrammarView 
-            user={user} 
-            mode="lesson" 
-            onBack={() => setView(AppView.DASHBOARD)} 
-            onGoToPlacement={() => setView(AppView.PLACEMENT_TEST)}
-            onUpdateUser={handleUpdateUser} 
-            onViewStats={() => setView(AppView.GRAMMAR_STATS)} 
-         />;
-     }
-     
-     if (view === AppView.GRAMMAR_REVIEW) {
-         const GrammarView = ActiveView as any;
-         return <GrammarView 
-            user={user} 
-            mode="review" 
-            onBack={() => setView(AppView.DASHBOARD)} 
-            onUpdateUser={handleUpdateUser} 
-         />;
-     }
-
-     if (view === AppView.DASHBOARD) {
-        const Dashboard = ActiveView as any;
-        return <Dashboard user={user} lang={lang} onNavigate={setView} onUpdateUser={handleUpdateUser} />;
-     }
-
-     if (view === AppView.GRAMMAR_STATS) {
-         const StatsView = ActiveView as any;
-         return <StatsView user={user} onBack={() => setView(AppView.DASHBOARD)} onContinue={() => setView(AppView.GRAMMAR_PRACTICE)} />;
-     }
-
-     if (view === AppView.PROFILE_ACHIEVEMENTS) {
-         const ProfileView = ActiveView as any;
-         return <ProfileView user={user} onBack={() => setView(AppView.DASHBOARD)} onNavigate={setView} />;
-     }
+  // Render Core Learning Views
+  if (user) {
+    const coreView = renderCoreView(view, user, lang, setView, handleUpdateUser);
+    if (coreView) {
+      return coreView;
+    }
   }
 
   return null;
